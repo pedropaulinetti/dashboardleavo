@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --background:0 0% 100%; --foreground:222.2 84% 4.9%;
+    --card:0 0% 100%; --card-foreground:222.2 84% 4.9%;
+    --primary:359 99% 57%; --primary-foreground:0 0% 100%;
+    --secondary:210 40% 96.1%; --muted:210 40% 96.1%; --muted-foreground:215.4 16.3% 46.9%;
+    --accent:210 40% 96.1%; --accent-foreground:222.2 47.4% 11.2%;
+    --border:214.3 31.8% 91.4%; --input:214.3 31.8% 91.4%; --ring:222.2 84% 4.9%;
+    --radius:0.5rem; --radius-lg:0.5rem; --radius-xl:0.75rem; --radius-2xl:1rem; --radius-full:9999px;
+    --font-sans:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    --font-mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --chart-1:38 92% 58%; --chart-2:31 93% 57%; --chart-3:24 94% 57%; --chart-4:16 95% 57%; --chart-5:8 97% 57%; --chart-6:359 99% 57%;
+  }
+  .theme-dark{
+    --background:0 0% 9%; --foreground:0 0% 95%;
+    --card:0 0% 11%; --card-foreground:0 0% 95%;
+    --secondary:0 0% 15%; --muted:0 0% 15%; --muted-foreground:0 0% 64%;
+    --accent:0 0% 16%; --accent-foreground:0 0% 95%;
+    --border:0 0% 18%; --input:0 0% 18%; --ring:0 0% 80%;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;}
+  .leavo-scroll::-webkit-scrollbar{width:11px;height:11px;}
+  .leavo-scroll::-webkit-scrollbar-thumb{background:hsl(var(--muted-foreground)/.35);border-radius:9999px;border:3px solid transparent;background-clip:content-box;}
+  .leavo-scroll::-webkit-scrollbar-track{background:transparent;}
+  select{appearance:none;-webkit-appearance:none;}
+  select:focus,input:focus{outline:none;}
+  input::placeholder{color:hsl(var(--muted-foreground)/.7);}
+  .navtab{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border:none;cursor:pointer;border-radius:10px;font-family:inherit;}
+</style>
+</helmet>
+
+<div class="{{ themeClass }}" style="display:flex;flex-direction:column;height:100vh;width:100%;overflow:hidden;font-family:var(--font-sans);letter-spacing:-0.011em;background:hsl(var(--background));color:hsl(var(--foreground));-webkit-font-smoothing:antialiased;">
+
+  <!-- ================= HEADER ================= -->
+  <header style="height:62px;flex-shrink:0;border-bottom:1px solid hsl(var(--border));display:flex;align-items:center;gap:8px;padding:0 22px;background:hsl(var(--background));">
+    <div style="display:flex;align-items:center;gap:10px;margin-right:14px;">
+      <div style="width:36px;height:36px;border-radius:10px;background:hsl(var(--primary));display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+        <img src="leavo/icon-white.svg" alt="Leavo" style="width:21px;height:21px;"/>
+      </div>
+      <div style="line-height:1.05;">
+        <div style="font-size:15px;font-weight:600;">Leavo</div>
+        <div style="font-size:10.5px;letter-spacing:.08em;color:hsl(var(--muted-foreground));">OWNER</div>
+      </div>
+    </div>
+
+    <div style="flex:1;"></div>
+
+    <nav style="display:flex;gap:4px;">
+      <sc-for list="{{ navItems }}" as="item" hint-placeholder-count="2">
+        <button onClick="{{ item.onClick }}" title="{{ item.label }}" class="navtab" style="background-color:{{ item.bg }};color:{{ item.fg }};">
+          <span style="font-size:19px;display:inline-flex;">{{ item.iconEl }}</span>
+        </button>
+      </sc-for>
+    </nav>
+
+    <button onClick="{{ toggleTheme }}" style="flex-shrink:0;width:38px;height:38px;border-radius:10px;border:1px solid hsl(var(--border));background:hsl(var(--card));cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:18px;color:hsl(var(--foreground));">
+      <sc-if value="{{ effDark }}" hint-placeholder-val="{{ true }}">{{ I.sun }}</sc-if>
+      <sc-if value="{{ notDark }}" hint-placeholder-val="{{ true }}">{{ I.moon }}</sc-if>
+    </button>
+  </header>
+
+  <!-- ================= CONTENT ================= -->
+  <main class="leavo-scroll" style="flex:1;overflow:auto;background:hsl(var(--muted)/.45);">
+
+    <!-- ============ DASHBOARD ============ -->
+    <sc-if value="{{ isDashboard }}" hint-placeholder-val="{{ true }}">
+    <div style="padding:24px;max-width:1340px;margin:0 auto;display:flex;flex-direction:column;gap:20px;">
+
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        <div>
+          <h2 style="font-size:22px;font-weight:600;margin:0;letter-spacing:-0.02em;">Funil de Vendas</h2>
+          <p style="font-size:13px;margin:3px 0 0;">Acompanhe origem, custo e conversão de ponta a ponta.</p>
+        </div>
+        <div style="flex:1;"></div>
+        <div style="position:relative;">
+          <button onClick="{{ togglePeriod }}" style="display:inline-flex;align-items:center;gap:8px;font-family:inherit;font-size:13px;font-weight:500;color:hsl(var(--foreground));background:hsl(var(--card));border:1px solid hsl(var(--border));border-radius:10px;padding:9px 12px;cursor:pointer;">
+            <span style="font-size:15px;display:inline-flex;color:hsl(var(--muted-foreground));">{{ I.calendar }}</span>{{ periodLabel }}<span style="font-size:15px;display:inline-flex;color:hsl(var(--muted-foreground));">{{ I.chevronDown }}</span>
+          </button>
+          <sc-if value="{{ periodOpen }}" hint-placeholder-val="{{ false }}">
+            <div onClick="{{ closeMenu }}" style="position:fixed;inset:0;z-index:40;"></div>
+            <div style="position:absolute;top:calc(100% + 6px);right:0;z-index:50;width:288px;background:hsl(var(--card));border:1px solid hsl(var(--border));border-radius:12px;padding:12px;box-shadow:0 12px 32px -12px hsl(0 0% 0% / .3);">
+              <div style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:hsl(var(--muted-foreground));font-weight:600;margin-bottom:8px;">Atalhos</div>
+              <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px;">
+                <sc-for list="{{ periodOptions }}" as="o" hint-placeholder-count="4">
+                  <button onClick="{{ o.onSelect }}" style="display:flex;align-items:center;justify-content:space-between;gap:6px;border:1px solid hsl(var(--border));cursor:pointer;border-radius:9px;padding:8px 10px;font-family:inherit;font-size:13px;text-align:left;background-color:{{ o.bg }};color:hsl(var(--foreground));">
+                    {{ o.l }}<sc-if value="{{ o.active }}" hint-placeholder-val="{{ false }}"><span style="font-size:14px;display:inline-flex;color:hsl(var(--primary));">{{ I.check }}</span></sc-if>
+                  </button>
+                </sc-for>
+              </div>
+              <div style="height:1px;background:hsl(var(--border));margin:13px 0;"></div>
+              <div style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:hsl(var(--muted-foreground));font-weight:600;margin-bottom:8px;">Período personalizado</div>
+              <div style="display:flex;gap:8px;">
+                <label style="flex:1;display:block;font-size:11px;color:hsl(var(--muted-foreground));">De
+                  <input type="date" defaultValue="{{ fromDate }}" onChange="{{ onFrom }}" max="{{ toDate }}" style="margin-top:4px;width:100%;font-family:inherit;font-size:12.5px;color:hsl(var(--foreground));background:hsl(var(--muted)/.5);border:1px solid hsl(var(--input));border-radius:8px;padding:7px 8px;"/>
+                </label>
+                <label style="flex:1;display:block;font-size:11px;color:hsl(var(--muted-foreground));">Até
+                  <input type="date" defaultValue="{{ toDate }}" onChange="{{ onTo }}" min="{{ fromDate }}" style="margin-top:4px;width:100%;font-family:inherit;font-size:12.5px;color:hsl(var(--foreground));background:hsl(var(--muted)/.5);border:1px solid hsl(var(--input));border-radius:8px;padding:7px 8px;"/>
+                </label>
+              </div>
+              <button onClick="{{ applyCustom }}" style="margin-top:11px;width:100%;display:inline-flex;align-items:center;justify-content:center;gap:7px;background:hsl(var(--primary));color:#fff;border:none;border-radius:9px;padding:9px;font-family:inherit;font-size:13px;font-weight:500;cursor:pointer;">
+                <span style="font-size:15px;display:inline-flex;">{{ I.calendar }}</span>Aplicar período
+              </button>
+            </div>
+          </sc-if>
+        </div>
+        <div style="position:relative;">
+          <button onClick="{{ toggleChannel }}" style="display:inline-flex;align-items:center;gap:8px;font-family:inherit;font-size:13px;font-weight:500;color:hsl(var(--foreground));background:hsl(var(--card));border:1px solid hsl(var(--border));border-radius:10px;padding:9px 12px;cursor:pointer;">
+            <span style="font-size:15px;display:inline-flex;color:hsl(var(--muted-foreground));">{{ I.filter }}</span>{{ channelLabel }}<span style="font-size:15px;display:inline-flex;color:hsl(var(--muted-foreground));">{{ I.chevronDown }}</span>
+          </button>
+          <sc-if value="{{ channelOpen }}" hint-placeholder-val="{{ false }}">
+            <div onClick="{{ closeMenu }}" style="position:fixed;inset:0;z-index:40;"></div>
+            <div style="position:absolute;top:calc(100% + 6px);right:0;z-index:50;min-width:196px;background:hsl(var(--card));border:1px solid hsl(var(--border));border-radius:12px;padding:5px;box-shadow:0 12px 32px -12px hsl(0 0% 0% / .3);">
+              <sc-for list="{{ channelOptions }}" as="o" hint-placeholder-count="5">
+                <button onClick="{{ o.onSelect }}" style="display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;border:none;cursor:pointer;border-radius:8px;padding:8px 10px;font-family:inherit;font-size:13px;text-align:left;background:{{ o.bg }};color:hsl(var(--foreground));">
+                  {{ o.l }}<sc-if value="{{ o.active }}" hint-placeholder-val="{{ false }}"><span style="font-size:15px;display:inline-flex;color:hsl(var(--primary));">{{ I.check }}</span></sc-if>
+                </button>
+              </sc-for>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;">
+        <sc-for list="{{ highlightCards }}" as="c" hint-placeholder-count="4">
+          <div style="background:hsl(var(--card));border:1px solid hsl(var(--border));border-radius:16px;padding:18px 20px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;">
+              <span style="font-size:13px;color:hsl(var(--muted-foreground));">{{ c.label }}</span>
+              <span style="width:30px;height:30px;border-radius:9px;background:{{ c.iconBg }};color:{{ c.iconFg }};display:flex;align-items:center;justify-content:center;font-size:15px;">{{ c.iconEl }}</span>
+            </div>
+            <div style="font-size:30px;font-weight:600;margin-top:10px;letter-spacing:-0.02em;">{{ c.value }}</div>
+            <div style="display:flex;align-items:center;gap:5px;margin-top:6px;font-size:12.5px;color:{{ c.deltaColor }};">
+              <span style="font-size:14px;display:inline-flex;">{{ c.arrowEl }}</span>{{ c.delta }}
+              <span style="color:hsl(var(--muted-foreground));">vs. período anterior</span>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;">
+        <sc-for list="{{ costCards }}" as="c" hint-placeholder-count="4">
+          <div style="background:hsl(var(--card));border:1px solid hsl(var(--border));border-radius:16px;padding:16px 18px;">
+            <div style="font-size:12.5px;color:hsl(var(--muted-foreground));">{{ c.label }}</div>
+            <div style="font-size:24px;font-weight:600;margin-top:8px;letter-spacing:-0.02em;">{{ c.value }}</div>
+            <div style="display:flex;align-items:center;gap:5px;margin-top:5px;font-size:12px;color:{{ c.deltaColor }};">
+              <span style="font-size:13px;display:inline-flex;">{{ c.arrowEl }}</span>{{ c.delta }}
+            </div>
+          </div>
+        </sc-for>
+      </div>
+
+      <!-- FUNNEL -->
+      <div style="background:hsl(var(--card));border:1px solid hsl(var(--border));border-radius:16px;padding:22px 24px;">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:10px;">
+          <div>
+            <h4 style="font-size:16px;font-weight:600;margin:0;">Funil de conversão</h4>
+            <p style="font-size:13px;margin:3px 0 0;">Volume por etapa e taxa de passagem entre cada estágio.</p>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;background:hsl(var(--muted)/.7);border:1px solid hsl(var(--border));border-radius:9999px;padding:6px 14px;">
+            <span style="font-size:12px;color:hsl(var(--muted-foreground));">Conversão geral</span>
+            <span style="font-size:15px;font-weight:600;color:hsl(var(--primary));">{{ convGeral }}</span>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-bottom:6px;">
+          <sc-for list="{{ funnelStages }}" as="s" hint-placeholder-count="6">
+            <div style="padding:0 4px;">
+              <div style="display:flex;align-items:center;gap:6px;">
+                <span style="width:9px;height:9px;border-radius:9999px;flex-shrink:0;background:{{ s.dotColor }};"></span>
+                <span style="font-size:12px;color:hsl(var(--muted-foreground));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ s.short }}</span>
+              </div>
+              <div style="font-size:24px;font-weight:600;margin-top:4px;letter-spacing:-0.02em;">{{ s.count }}</div>
+              <div style="font-size:11.5px;color:hsl(var(--muted-foreground));margin-top:1px;">{{ s.convLabel }}</div>
+            </div>
+          </sc-for>
+        </div>
+        <svg viewBox="0 0 1200 256" preserveAspectRatio="none" style="width:100%;height:230px;display:block;overflow:visible;">
+          <sc-for list="{{ funnelPaths }}" as="p" hint-placeholder-count="18">
+            <path d="{{ p.d }}" fill="{{ p.fill }}" opacity="{{ p.op }}"></path>
+          </sc-for>
+        </svg>
+      </div>
+
+      <!-- UTMs + Donut -->
+      <div style="display:grid;grid-template-columns:1.55fr 1fr;gap:20px;align-items:start;">
+        <div style="background:hsl(var(--card));border:1px solid hsl(var(--border));border-radius:16px;padding:20px 22px;">
+          <div style="margin-bottom:14px;">
+            <h4 style="font-size:16px;font-weight:600;margin:0;">Melhores origens</h4>
+            <p style="font-size:13px;margin:3px 0 0;">Ranking de UTMs por volume e taxa de conversão em venda.</p>
+          </div>
+          <div style="display:grid;grid-template-columns:1.7fr .7fr .7fr 1.1fr .8fr;gap:8px;padding:0 4px 8px;font-size:11.5px;letter-spacing:.04em;text-transform:uppercase;color:hsl(var(--muted-foreground));border-bottom:1px solid hsl(var(--border));">
+            <div>Origem / campanha</div><div style="text-align:right;">Leads</div><div style="text-align:right;">Vendas</div><div>Conversão</div><div style="text-align:right;">CPL</div>
+          </div>
+          <sc-for list="{{ utmRows }}" as="u" hint-placeholder-count="5">
+            <div style="display:grid;grid-template-columns:1.7fr .7fr .7fr 1.1fr .8fr;gap:8px;align-items:center;padding:11px 4px;border-bottom:1px solid hsl(var(--border)/.6);">
+              <div style="min-width:0;">
+                <div style="font-size:13.5px;font-weight:600;font-family:var(--font-mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ u.source }}</div>
+                <div style="font-size:11.5px;color:hsl(var(--muted-foreground));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ u.campaign }}</div>
+              </div>
+              <div style="text-align:right;font-size:13.5px;">{{ u.leads }}</div>
+              <div style="text-align:right;font-size:13.5px;font-weight:600;">{{ u.vendas }}</div>
+              <div style="display:flex;align-items:center;gap:7px;">
+                <div style="flex:1;height:6px;border-radius:9999px;background:hsl(var(--muted));overflow:hidden;"><div style="height:100%;border-radius:9999px;background:hsl(var(--primary));width:{{ u.convW }};"></div></div>
+                <span style="font-size:12px;color:hsl(var(--muted-foreground));width:34px;">{{ u.conv }}</span>
+              </div>
+              <div style="text-align:right;font-size:13px;">{{ u.cpl }}</div>
+            </div>
+          </sc-for>
+        </div>
+
+        <div style="background:hsl(var(--card));border:1px solid hsl(var(--border));border-radius:16px;padding:20px 22px;">
+          <div style="margin-bottom:8px;">
+            <h4 style="font-size:16px;font-weight:600;margin:0;">Motivos da perda</h4>
+            <p style="font-size:13px;margin:3px 0 0;">Negociações que não viraram venda.</p>
+          </div>
+          <div style="position:relative;width:188px;height:188px;margin:6px auto 14px;">
+            <svg viewBox="0 0 200 200" style="width:100%;height:100%;transform:rotate(-90deg);">
+              <sc-for list="{{ donutArcs }}" as="a" hint-placeholder-count="5">
+                <circle cx="100" cy="100" r="64" fill="none" stroke="{{ a.color }}" stroke-width="26" stroke-dasharray="{{ a.dash }}" stroke-dashoffset="{{ a.offset }}"></circle>
+              </sc-for>
+            </svg>
+            <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+              <div style="font-size:32px;font-weight:600;letter-spacing:-0.02em;">{{ donutTotal }}</div>
+              <div style="font-size:12px;color:hsl(var(--muted-foreground));">perdidos</div>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:9px;">
+            <sc-for list="{{ lossRows }}" as="l" hint-placeholder-count="5">
+              <div style="display:flex;align-items:center;gap:9px;font-size:13px;">
+                <span style="width:10px;height:10px;border-radius:3px;flex-shrink:0;background:{{ l.color }};"></span>
+                <span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ l.reason }}</span>
+                <span style="font-weight:600;">{{ l.count }}</span>
+                <span style="color:hsl(var(--muted-foreground));width:38px;text-align:right;">{{ l.pct }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+
+      <!-- Creatives -->
+      <div style="background:hsl(var(--card));border:1px solid hsl(var(--border));border-radius:16px;padding:20px 22px;">
+        <div style="margin-bottom:14px;">
+          <h4 style="font-size:16px;font-weight:600;margin:0;">Melhores criativos</h4>
+          <p style="font-size:13px;margin:3px 0 0;">Anúncios ordenados pela receita gerada no período.</p>
+        </div>
+        <sc-if value="{{ hasCreatives }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;flex-direction:column;gap:12px;">
+            <sc-for list="{{ creativeRows }}" as="c" hint-placeholder-count="5">
+              <div style="display:grid;grid-template-columns:26px 2.2fr 1.6fr auto;gap:14px;align-items:center;">
+                <div style="width:26px;height:26px;border-radius:8px;background:hsl(var(--muted));display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:hsl(var(--muted-foreground));">{{ c.rank }}</div>
+                <div style="min-width:0;">
+                  <div style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ c.name }}</div>
+                  <div style="display:flex;align-items:center;gap:6px;margin-top:3px;">
+                    <span style="font-size:11px;padding:1px 8px;border-radius:9999px;background:hsl(var(--muted));color:hsl(var(--muted-foreground));">{{ c.plat }}</span>
+                    <span style="font-size:11.5px;color:hsl(var(--muted-foreground));">{{ c.vendas }} vendas</span>
+                  </div>
+                </div>
+                <div style="height:8px;border-radius:9999px;background:hsl(var(--muted));overflow:hidden;"><div style="height:100%;border-radius:9999px;width:{{ c.barW }};background:linear-gradient(90deg,hsl(var(--chart-1)),hsl(var(--chart-6)));"></div></div>
+                <div style="text-align:right;font-size:15px;font-weight:600;letter-spacing:-0.01em;white-space:nowrap;">{{ c.receita }}</div>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+        <sc-if value="{{ noCreatives }}" hint-placeholder-val="{{ false }}">
+          <div style="padding:28px;text-align:center;font-size:13px;color:hsl(var(--muted-foreground));">Sem criativos pagos neste canal — origem orgânica.</div>
+        </sc-if>
+      </div>
+
+    </div>
+    </sc-if>
+
+    <!-- ============ INTEGRAÇÕES ============ -->
+    <sc-if value="{{ isIntegracoes }}" hint-placeholder-val="{{ false }}">
+    <div style="padding:24px;max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:22px;">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+        <div>
+          <h2 style="font-size:22px;font-weight:600;margin:0;letter-spacing:-0.02em;">Integrações</h2>
+          <p style="font-size:13px;margin:4px 0 0;max-width:560px;">Conecte suas ferramentas para alimentar o funil. As credenciais (login e senha / tokens) são guardadas com criptografia e usadas só para sincronizar dados.</p>
+        </div>
+        <button style="display:inline-flex;align-items:center;gap:8px;background:hsl(var(--primary));color:#fff;border:none;border-radius:12px;padding:10px 16px;font-family:inherit;font-size:14px;font-weight:500;cursor:pointer;white-space:nowrap;">
+          <span style="font-size:16px;display:inline-flex;">{{ I.plus }}</span> Adicionar integração
+        </button>
+      </div>
+
+      <sc-for list="{{ intCats }}" as="cat" hint-placeholder-count="4">
+        <div>
+          <div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:hsl(var(--muted-foreground));font-weight:600;margin-bottom:12px;">{{ cat.cat }}</div>
+          <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px;">
+            <sc-for list="{{ cat.items }}" as="it" hint-placeholder-count="2">
+              <div style="background:hsl(var(--card));border:1px solid {{ it.borderColor }};border-radius:16px;padding:18px;">
+                <div style="display:flex;align-items:center;gap:13px;">
+                  <div style="width:46px;height:46px;border-radius:11px;background:#fff;border:1px solid hsl(var(--border));display:flex;align-items:center;justify-content:center;flex-shrink:0;padding:8px;">
+                    <img src="{{ it.logo }}" alt="{{ it.name }}" style="max-width:100%;max-height:100%;object-fit:contain;"/>
+                  </div>
+                  <div style="flex:1;min-width:0;">
+                    <div style="font-size:15px;font-weight:600;">{{ it.name }}</div>
+                    <div style="display:inline-flex;align-items:center;gap:6px;margin-top:3px;font-size:12px;color:{{ it.statusColor }};">
+                      <span style="width:7px;height:7px;border-radius:9999px;background:{{ it.statusDot }};"></span>{{ it.statusLabel }}
+                    </div>
+                  </div>
+                </div>
+                <p style="font-size:13px;margin:12px 0 0;line-height:1.5;">{{ it.desc }}</p>
+
+                <sc-if value="{{ it.isOpen }}" hint-placeholder-val="{{ false }}">
+                  <div style="margin-top:14px;display:flex;flex-direction:column;gap:11px;border-top:1px dashed hsl(var(--border));padding-top:14px;">
+                    <sc-for list="{{ it.fields }}" as="f" hint-placeholder-count="2">
+                      <div>
+                        <label style="display:block;font-size:12px;font-weight:500;margin-bottom:5px;color:hsl(var(--foreground));">{{ f.label }}</label>
+                        <input type="{{ f.type }}" placeholder="{{ f.ph }}" style="width:100%;font-family:inherit;font-size:13.5px;color:hsl(var(--foreground));background:hsl(var(--muted)/.5);border:1px solid hsl(var(--input));border-radius:9px;padding:9px 11px;"/>
+                      </div>
+                    </sc-for>
+                    <div style="display:flex;gap:9px;margin-top:3px;">
+                      <button onClick="{{ it.onSave }}" style="display:inline-flex;align-items:center;gap:7px;background:hsl(var(--primary));color:#fff;border:none;border-radius:10px;padding:9px 15px;font-family:inherit;font-size:13.5px;font-weight:500;cursor:pointer;"><span style="font-size:15px;display:inline-flex;">{{ I.lock }}</span>Salvar conexão</button>
+                      <button onClick="{{ it.onCancel }}" style="background:hsl(var(--card));color:hsl(var(--foreground));border:1px solid hsl(var(--border));border-radius:10px;padding:9px 15px;font-family:inherit;font-size:13.5px;cursor:pointer;">Cancelar</button>
+                    </div>
+                  </div>
+                </sc-if>
+
+                <sc-if value="{{ it.showConnected }}" hint-placeholder-val="{{ false }}">
+                  <div style="margin-top:14px;border-top:1px solid hsl(var(--border));padding-top:13px;display:flex;align-items:center;gap:10px;">
+                    <span style="font-size:15px;display:inline-flex;color:hsl(var(--muted-foreground));">{{ I.keyRound }}</span>
+                    <span style="flex:1;font-size:13px;color:hsl(var(--muted-foreground));font-family:var(--font-mono);">••••••••••••{{ it.tail }}</span>
+                    <button onClick="{{ it.onDisconnect }}" style="background:none;border:1px solid hsl(var(--border));border-radius:9px;padding:7px 12px;font-family:inherit;font-size:12.5px;cursor:pointer;color:hsl(var(--foreground));">Desconectar</button>
+                  </div>
+                </sc-if>
+
+                <sc-if value="{{ it.showConnect }}" hint-placeholder-val="{{ true }}">
+                  <button onClick="{{ it.onOpen }}" style="margin-top:14px;width:100%;display:inline-flex;align-items:center;justify-content:center;gap:8px;background:hsl(var(--card));color:hsl(var(--foreground));border:1px solid hsl(var(--border));border-radius:10px;padding:10px;font-family:inherit;font-size:13.5px;font-weight:500;cursor:pointer;transition:background .15s;" style-hover="background:hsl(var(--accent));">
+                    <span style="font-size:15px;display:inline-flex;">{{ I.zap }}</span> Conectar
+                  </button>
+                </sc-if>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+    </sc-if>
+
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:900},&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;light&quot;,&quot;dark&quot;],&quot;default&quot;:&quot;light&quot;,&quot;tsType&quot;:&quot;'light'|'dark'&quot;},&quot;ticketMedio&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:2400,&quot;min&quot;:500,&quot;max&quot;:10000,&quot;step&quot;:100,&quot;tsType&quot;:&quot;number&quot;}}">
+class Component extends DCLogic {
+  state = { page:'dashboard', dark:null, period:'30d', channel:'all', openConn:null, openMenu:null,
+            from:'2026-05-16', to:'2026-06-15',
+            connected:{ whatsapp:true, hubspot:true } };
+
+  base = {
+    meta:   { label:'Meta Ads',          funnel:[1240,520,310,240,130,58], invest:18400, impr:1420000, clicks:31200 },
+    google: { label:'Google Ads',        funnel:[860,410,250,205,118,61],  invest:15200, impr:980000,  clicks:22400 },
+    whats:  { label:'WhatsApp Org\u00e2nico', funnel:[540,300,190,160,96,47],   invest:0,     impr:0,       clicks:0 },
+    indica: { label:'Indica\u00e7\u00e3o',         funnel:[210,150,110,98,71,44],    invest:0,     impr:0,       clicks:0 },
+  };
+  order = ['meta','google','whats','indica'];
+  stageShort = ['Leads','MQL','Agendadas','Realizadas','Negocia\u00e7\u00f5es','Vendas'];
+  periodMap = { '7d':{f:0.25}, '30d':{f:1}, '90d':{f:3}, '12m':{f:12} };
+
+  utmsBase = [
+    { source:'meta_ads',   campaign:'remarketing-q2',     ch:'meta',   leads:540, vendas:31, cpl:9.80 },
+    { source:'google_ads', campaign:'search-marca',       ch:'google', leads:300, vendas:28, cpl:12.40 },
+    { source:'whatsapp',   campaign:'bio-organico',       ch:'whats',  leads:340, vendas:30, cpl:0 },
+    { source:'indicacao',  campaign:'programa-member',    ch:'indica', leads:210, vendas:44, cpl:0 },
+    { source:'meta_ads',   campaign:'prospec-lookalike',  ch:'meta',   leads:430, vendas:18, cpl:13.90 },
+    { source:'google_ads', campaign:'pmax-geral',         ch:'google', leads:300, vendas:17, cpl:16.80 },
+  ];
+  creativesBase = [
+    { name:'Depoimento Cliente \u2014 V\u00eddeo 30s', plat:'Meta',   ch:'meta',   vendas:34, receita:142800 },
+    { name:'Carrossel Antes e Depois',       plat:'Meta',   ch:'meta',   vendas:22, receita:98400 },
+    { name:'Demo do Produto \u2014 Reels',        plat:'Meta',   ch:'meta',   vendas:18, receita:76800 },
+    { name:'Search \u2014 Palavra-chave Marca',   plat:'Google', ch:'google', vendas:15, receita:64800 },
+    { name:'Banner Promo Anivers\u00e1rio',       plat:'Google', ch:'google', vendas:12, receita:52800 },
+  ];
+  lossDefs = [
+    { reason:'Pre\u00e7o / or\u00e7amento',         w:0.36,  color:'hsl(359 99% 57%)' },
+    { reason:'Sumiu / sem retorno',       w:0.255, color:'hsl(24 94% 57%)' },
+    { reason:'Escolheu concorrente',      w:0.185, color:'hsl(38 92% 58%)' },
+    { reason:'Sem fit / n\u00e3o qualificado', w:0.122, color:'hsl(215 16% 55%)' },
+    { reason:'Timing / adiou decis\u00e3o',    w:0.078, color:'hsl(214 18% 80%)' },
+  ];
+
+  catsDef = [
+    { cat:'CRM', items:[
+      { id:'hubspot',   name:'HubSpot',    logo:'leavo/logos/hubspot.svg',   desc:'Sincronize leads e neg\u00f3cios com o HubSpot CRM.', tail:'4d40' },
+      { id:'salesforce',name:'Salesforce', logo:'leavo/logos/salesforce.svg',desc:'Envie oportunidades qualificadas direto para o Salesforce.', tail:'9a21' },
+      { id:'pipedrive', name:'Pipedrive',  logo:'leavo/logos/pipedrive.svg', desc:'Crie neg\u00f3cios no pipeline a cada lead qualificado.', tail:'7c08' },
+      { id:'rdstation', name:'RD Station', logo:'leavo/logos/rdstation.svg', desc:'Integre o funil de marketing e vendas da RD Station.', tail:'b512' },
+    ]},
+    { cat:'Canais & An\u00fancios', items:[
+      { id:'whatsapp', name:'WhatsApp',  logo:'leavo/logos/whatsapp.svg', desc:'Conecte o n\u00famero oficial para as conversas dos agentes.', tail:'e731' },
+      { id:'meta',     name:'Meta Ads',  logo:'leavo/logos/meta.svg',     desc:'Importe leads e custo das campanhas do Meta Ads.', tail:'2f6c' },
+    ]},
+    { cat:'Pagamentos', items:[
+      { id:'pagar', name:'Pagar.me', logo:'leavo/logos/pagar.svg', desc:'Gere cobran\u00e7as e acompanhe o faturamento das vendas.', tail:'aa90' },
+    ]},
+    { cat:'Automa\u00e7\u00e3o', items:[
+      { id:'iftodo', name:'Iftodo', logo:'leavo/logos/iftodo.svg', desc:'Dispare automa\u00e7\u00f5es de tarefas e follow-up.', tail:'1d77' },
+      { id:'thub',   name:'Thub',   logo:'leavo/logos/thub.svg',   desc:'Centralize integra\u00e7\u00f5es e webhooks personalizados.', tail:'66c4' },
+    ]},
+  ];
+
+  nf0 = new Intl.NumberFormat('pt-BR',{maximumFractionDigits:0});
+  nf2 = new Intl.NumberFormat('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  fmtInt(n){ return this.nf0.format(Math.round(n)); }
+  fmtBRL(n){ return 'R$ '+this.nf2.format(n); }
+  fmtBRL0(n){ return 'R$ '+this.nf0.format(Math.round(n)); }
+  pct(x){ return (x*100).toFixed(1).replace('.',',')+'%'; }
+
+  effDark(){ return this.state.dark===null ? (this.props.theme==='dark') : this.state.dark; }
+  ticket(){ return this.props.ticketMedio ?? 2400; }
+
+  icons(){
+    const e=React.createElement;
+    const S=(...c)=>e('svg',{viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:1.75,strokeLinecap:'round',strokeLinejoin:'round',width:'1em',height:'1em',style:{display:'block'}},
+      c.map((x,i)=> typeof x==='string' ? e('path',{key:i,d:x}) : e(x.t,{key:i,...x.a})));
+    const R=(x,y,w,h,rx)=>({t:'rect',a:{x,y,width:w,height:h,rx:rx||0}});
+    const C=(cx,cy,r,extra)=>({t:'circle',a:{cx,cy,r,...(extra||{})}});
+    const L=(x1,y1,x2,y2)=>({t:'line',a:{x1,y1,x2,y2}});
+    return {
+      layoutGrid:S(R(3,3,7,7,1),R(14,3,7,7,1),R(14,14,7,7,1),R(3,14,7,7,1)),
+      plug:S('M12 22v-5','M9 8V2','M15 8V2','M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8z'),
+      chevronDown:S('m6 9 6 6 6-6'),
+      check:S('M20 6 9 17l-5-5'),
+      play:S('M6 3 20 12 6 21Z'),
+      msgCircle:S('M7.9 20A9 9 0 1 0 4 16.1L2 22Z'),
+      bell:S('M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9','M10.3 21a1.94 1.94 0 0 0 3.4 0'),
+      globe:S(C(12,12,10),'M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20','M2 12h20'),
+      sun:S(C(12,12,4),'M12 2v2','M12 20v2','M4.9 4.9l1.4 1.4','M17.7 17.7l1.4 1.4','M2 12h2','M20 12h2','M6.3 17.7l-1.4 1.4','M19.1 4.9l-1.4 1.4'),
+      moon:S('M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z'),
+      calendar:S(R(3,4,18,18,2),'M16 2v4','M8 2v4','M3 10h18'),
+      filter:S('M22 3H2l8 9.46V19l4 2v-8.54L22 3z'),
+      banknote:S(R(2,6,20,12,2),C(12,12,2),'M6 12h.01','M18 12h.01'),
+      badgeCheck:S('M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z','m9 12 2 2 4-4'),
+      wallet:S('M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1','M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4'),
+      trendingUp:S('M16 7h6v6','m22 7-8.5 8.5-5-5L2 17'),
+      arrowUR:S('M7 7h10v10','M7 17 17 7'),
+      arrowDR:S('m7 7 10 10','M17 7v10H7'),
+      plus:S('M5 12h14','M12 5v14'),
+      lock:S(R(3,11,18,11,2),'M7 11V7a5 5 0 0 1 10 0v4'),
+      keyRound:S('M2.6 17.4A2 2 0 0 0 2 18.8V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.2a2 2 0 0 0 1.4-.6l.8-.8a6.5 6.5 0 1 0-4-4z',C(16.5,7.5,0.5,{fill:'currentColor'})),
+      zap:S('M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z'),
+    };
+  }
+
+  fieldsFor(id){
+    if(id==='whatsapp') return [
+      {label:'WhatsApp Business ID', type:'text', ph:'Ex.: 1029384756'},
+      {label:'Token de acesso', type:'password', ph:'\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022'},
+    ];
+    if(id==='meta') return [
+      {label:'ID da conta de an\u00fancios', type:'text', ph:'act_000000000'},
+      {label:'Token de acesso', type:'password', ph:'\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022'},
+    ];
+    if(id==='pagar') return [
+      {label:'Chave de API (secret)', type:'password', ph:'sk_live_\u2022\u2022\u2022\u2022\u2022\u2022'},
+    ];
+    return [
+      {label:'E-mail / usu\u00e1rio', type:'text', ph:'voce@empresa.com'},
+      {label:'Senha', type:'password', ph:'\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022'},
+      {label:'API Token (opcional)', type:'text', ph:'Cole o token gerado no painel'},
+    ];
+  }
+
+  compute(){
+    let f;
+    const p=this.state.period;
+    if(p==='custom' && this.state.from && this.state.to){
+      const days=Math.max(1, Math.round((new Date(this.state.to)-new Date(this.state.from))/86400000)+1);
+      f=days/30;
+    } else {
+      f=(this.periodMap[p]||this.periodMap['30d']).f;
+    }
+    const ch = this.state.channel;
+    const keys = ch==='all' ? this.order : [ch];
+    const fr=[0,0,0,0,0,0]; let invest=0,impr=0,clicks=0;
+    keys.forEach(k=>{ const b=this.base[k]; b.funnel.forEach((v,i)=>fr[i]+=v); invest+=b.invest; impr+=b.impr; clicks+=b.clicks; });
+    const sc=x=>Math.round(x*f);
+    const funnel=fr.map(sc); invest=Math.round(invest*f); impr=Math.round(impr*f); clicks=Math.round(clicks*f);
+    const leads=funnel[0]||1, mql=funnel[1]||1, neg=funnel[4], vendas=funnel[5];
+    const receita=vendas*this.ticket();
+    const cpl=invest/leads, cpmql=invest/mql, cpm=impr?invest/impr*1000:0, cpc=clicks?invest/clicks:0;
+    const I=this.icons();
+
+    const H=256, gap=8, n=6, W=1200, segW=(W-gap*(n-1))/n;
+    const maxV=funnel[0]||1; const norm=funnel.map(v=>v/maxV);
+    const layers=[{op:0.16,m:0.94},{op:0.46,m:0.78},{op:0.85,m:0.62}];
+    const paths=[];
+    for(let i=0;i<n;i++){
+      const x0=i*(segW+gap), x1=x0+segW;
+      const vL=norm[i], vR=i<n-1?norm[i+1]:norm[i];
+      const cx1=x0+segW*0.55, cx2=x0+segW*0.45;
+      layers.forEach((Ly,li)=>{
+        const hL=vL*Ly.m*H, hR=vR*Ly.m*H;
+        const tL=(H-hL)/2, bL=(H+hL)/2, tR=(H-hR)/2, bR=(H+hR)/2;
+        const d=`M ${x0.toFixed(1)} ${tL.toFixed(1)} C ${cx1.toFixed(1)} ${tL.toFixed(1)}, ${cx2.toFixed(1)} ${tR.toFixed(1)}, ${x1.toFixed(1)} ${tR.toFixed(1)} L ${x1.toFixed(1)} ${bR.toFixed(1)} C ${cx2.toFixed(1)} ${bR.toFixed(1)}, ${cx1.toFixed(1)} ${bL.toFixed(1)}, ${x0.toFixed(1)} ${bL.toFixed(1)} Z`;
+        paths.push({ id:i*3+li, d, fill:`hsl(var(--chart-${i+1}))`, op:Ly.op });
+      });
+    }
+    const stages=funnel.map((v,i)=>({
+      id:i, short:this.stageShort[i], count:this.fmtInt(v), dotColor:`hsl(var(--chart-${i+1}))`,
+      convLabel: i===0 ? 'Topo do funil' : `${this.pct(funnel[i]/(funnel[i-1]||1))} da etapa anterior`,
+    }));
+
+    const perdidos=Math.max(neg-vendas,0);
+    const counts=this.lossDefs.map(d=>Math.round(perdidos*d.w));
+    const total=counts.reduce((a,b)=>a+b,0)||1;
+    const Cc=2*Math.PI*64; let cum=0;
+    const donutArcs=this.lossDefs.map((d,i)=>{ const len=(counts[i]/total)*Cc; const seg=Math.max(len-3,0); const a={id:i,color:d.color, dash:`${seg.toFixed(2)} ${(Cc-seg).toFixed(2)}`, offset:(-cum).toFixed(2)}; cum+=len; return a; });
+    const lossRows=this.lossDefs.map((d,i)=>({ id:i, reason:d.reason, color:d.color, count:this.fmtInt(counts[i]), pct:(counts[i]/total*100).toFixed(0)+'%' }));
+
+    let utm=this.utmsBase.filter(u=>ch==='all'||u.ch===ch).map(u=>({...u, l2:Math.round(u.leads*f), v2:Math.round(u.vendas*f), conv:u.vendas/u.leads}));
+    utm.sort((a,b)=>b.v2-a.v2); utm=utm.slice(0,5);
+    const maxConv=Math.max(...utm.map(u=>u.conv),0.01);
+    const utmRows=utm.map((u,i)=>({ id:i, source:u.source, campaign:u.campaign, leads:this.fmtInt(u.l2), vendas:this.fmtInt(u.v2), conv:this.pct(u.conv), convW:(u.conv/maxConv*100).toFixed(0)+'%', cpl: u.cpl?this.fmtBRL(u.cpl):'Org\u00e2nico' }));
+
+    let cre=this.creativesBase.filter(c=>ch==='all'||c.ch===ch).map(c=>({...c, v2:Math.round(c.vendas*f), r2:Math.round(c.receita*f)}));
+    cre.sort((a,b)=>b.r2-a.r2); cre=cre.slice(0,5);
+    const maxRec=Math.max(...cre.map(c=>c.r2),1);
+    const creativeRows=cre.map((c,i)=>({ id:i, rank:i+1, name:c.name, plat:c.plat, vendas:this.fmtInt(c.v2), receita:this.fmtBRL0(c.r2), barW:(c.r2/maxRec*100).toFixed(0)+'%' }));
+
+    const green='hsl(142 64% 40%)', muted='hsl(var(--muted-foreground))';
+    const highlightCards=[
+      {id:0,label:'Receita gerada', value:this.fmtBRL0(receita), delta:'+12,4%', iconEl:I.banknote, iconBg:'hsl(142 64% 40% / .12)', iconFg:green, deltaColor:green, arrowEl:I.arrowUR},
+      {id:1,label:'Vendas', value:this.fmtInt(vendas), delta:'+9,1%', iconEl:I.badgeCheck, iconBg:'hsl(var(--primary)/.12)', iconFg:'hsl(var(--primary))', deltaColor:green, arrowEl:I.arrowUR},
+      {id:2,label:'Investimento', value:this.fmtBRL0(invest), delta:'+8,2%', iconEl:I.wallet, iconBg:'hsl(var(--muted))', iconFg:muted, deltaColor:muted, arrowEl:I.arrowUR},
+      {id:3,label:'ROAS', value: invest?((receita/invest).toFixed(1).replace('.',',')+'x'):'\u2014', delta:'+3,8%', iconEl:I.trendingUp, iconBg:'hsl(var(--muted))', iconFg:muted, deltaColor:green, arrowEl:I.arrowUR},
+    ];
+    const costCards=[
+      {id:0,label:'CPL \u2014 Custo por Lead', value: invest?this.fmtBRL(cpl):'\u2014', delta:'-4,1%', deltaColor:green, arrowEl:I.arrowDR},
+      {id:1,label:'Custo por MQL', value: invest?this.fmtBRL(cpmql):'\u2014', delta:'-2,7%', deltaColor:green, arrowEl:I.arrowDR},
+      {id:2,label:'CPM', value: impr?this.fmtBRL(cpm):'\u2014', delta:'+1,9%', deltaColor:'hsl(0 72% 51%)', arrowEl:I.arrowUR},
+      {id:3,label:'CPC', value: clicks?this.fmtBRL(cpc):'\u2014', delta:'-3,3%', deltaColor:green, arrowEl:I.arrowDR},
+    ];
+
+    return { funnelPaths:paths, funnelStages:stages, convGeral:this.pct(vendas/leads),
+             donutArcs, donutTotal:this.fmtInt(total), lossRows,
+             utmRows, creativeRows, hasCreatives:creativeRows.length>0, noCreatives:creativeRows.length===0,
+             highlightCards, costCards };
+  }
+
+  renderVals(){
+    const page=this.state.page;
+    const I=this.icons();
+    const dark=this.effDark();
+    const nav=[
+      {key:'dashboard',label:'Dashboard',iconEl:I.layoutGrid},
+      {key:'integracoes',label:'Integra\u00e7\u00e3o',iconEl:I.plug},
+    ];
+    const navItems=nav.map(it=>{ const active=page===it.key; return {...it, onClick:()=>this.setState({page:it.key}), bg:active?'hsl(var(--primary))':'transparent', fg:active?'#ffffff':'hsl(var(--muted-foreground))', weight:active?'600':'500'}; });
+
+    const intCats=this.catsDef.map((c,ci)=>({ id:ci, cat:c.cat, items:c.items.map(it=>{
+      const connected=!!this.state.connected[it.id];
+      const open=this.state.openConn===it.id;
+      return { ...it, fields:this.fieldsFor(it.id),
+        isOpen:open, showConnected:connected&&!open, showConnect:!connected&&!open,
+        statusLabel: connected?'Conectado':'Desconectado',
+        statusColor: connected?'hsl(142 64% 40%)':'hsl(var(--muted-foreground))',
+        statusDot: connected?'hsl(142 64% 40%)':'hsl(var(--muted-foreground))',
+        borderColor: connected?'hsl(142 64% 40% / .45)':'hsl(var(--border))',
+        onOpen:()=>this.setState({openConn:it.id}),
+        onCancel:()=>this.setState({openConn:null}),
+        onSave:()=>this.setState(s=>({connected:{...s.connected,[it.id]:true}, openConn:null})),
+        onDisconnect:()=>this.setState(s=>{ const cc={...s.connected}; delete cc[it.id]; return {connected:cc}; }),
+      };
+    }) }));
+
+    const perDefs=[['7d','\u00daltimos 7 dias'],['30d','\u00daltimos 30 dias'],['90d','\u00daltimos 90 dias'],['12m','\u00daltimos 12 meses']];
+    const chDefs=[['all','Todos os canais'],['meta','Meta Ads'],['google','Google Ads'],['whats','WhatsApp Org\u00e2nico'],['indica','Indica\u00e7\u00e3o']];
+    const mkOpts=(defs,cur,key)=>defs.map(([v,l])=>({v,l,active:cur===v,bg:cur===v?'hsl(var(--accent))':'transparent',onSelect:()=>this.setState({[key]:v,openMenu:null})}));
+    const periodOptions=mkOpts(perDefs,this.state.period,'period');
+    const channelOptions=mkOpts(chDefs,this.state.channel,'channel');
+    const fmtD=iso=>{ if(!iso) return ''; const a=iso.split('-'); return `${a[2]}/${a[1]}/${a[0]}`; };
+    const periodLabel = this.state.period==='custom'
+      ? `${fmtD(this.state.from)} – ${fmtD(this.state.to)}`
+      : (perDefs.find(d=>d[0]===this.state.period)||perDefs[1])[1];
+    const channelLabel=(chDefs.find(d=>d[0]===this.state.channel)||chDefs[0])[1];
+
+    return {
+      I, themeClass: dark?'theme-dark':'', effDark:dark, notDark:!dark,
+      toggleTheme:()=>this.setState({dark:!dark}),
+      isDashboard:page==='dashboard', isIntegracoes:page==='integracoes',
+      navItems,
+      period:this.state.period, channel:this.state.channel,
+      periodLabel, channelLabel, periodOptions, channelOptions,
+      fromDate:this.state.from, toDate:this.state.to,
+      onFrom:e=>this.setState({from:e.target.value}),
+      onTo:e=>this.setState({to:e.target.value}),
+      applyCustom:()=>this.setState({period:'custom', openMenu:null}),
+      periodOpen:this.state.openMenu==='period', channelOpen:this.state.openMenu==='channel',
+      togglePeriod:()=>this.setState(s=>({openMenu:s.openMenu==='period'?null:'period'})),
+      toggleChannel:()=>this.setState(s=>({openMenu:s.openMenu==='channel'?null:'channel'})),
+      closeMenu:()=>this.setState({openMenu:null}),
+      intCats,
+      ...this.compute(),
+    };
+  }
+}
+</script>
+</body>
+</html>

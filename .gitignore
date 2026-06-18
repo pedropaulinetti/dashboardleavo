@@ -1,5 +1,14 @@
 node_modules/
 .next/
+/out/
+/build
 .env
 .env*.local
 .DS_Store
+
+# testing
+/coverage
+
+# typescript / next
+*.tsbuildinfo
+next-env.d.ts
