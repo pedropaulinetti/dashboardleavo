@@ -1,7 +1,11 @@
-import { and, count, countDistinct, desc, eq, gte, inArray, lte, sql, sum } from 'drizzle-orm'
+import { and, count, countDistinct, desc, eq, gte, isNotNull, lte, inArray, sql, sum } from 'drizzle-orm'
 import type { db } from '@/db'
 import { adMetrics, FUNNEL_STAGES, leads, leadStageEvents } from '@/db/schema'
+import { buildDonutArcs, type DonutArc } from './donut'
+import { buildFunnelPaths, type FunnelPath } from './funnel-svg'
+import { LOSS_REASONS } from './loss-reasons'
 import { delta, safeDiv } from './math'
+import { resolveRange } from './range'
 
 // `database` aceita o driver de produção (postgres-js) ou o de teste (PGlite).
 // Usar genérico sobre `Pick<typeof db,'select'>` evita conflito entre os HKTs dos
@@ -345,4 +349,109 @@ export async function getCreatives(
     vendas: Number(r.vendas ?? 0),
     revenueCents: Number(r.revenueCents ?? 0),
   }))
+}
+
+export interface LossReasonRow {
+  reason: string
+  count: number
+  pct: number
+}
+
+export interface LossReasons {
+  rows: LossReasonRow[]
+  total: number
+}
+
+// Índice de cada motivo conhecido na constante (ordem de exibição); desconhecidos -> Infinity.
+const LOSS_ORDER = new Map<string, number>(LOSS_REASONS.map((l, i) => [l.reason, i]))
+
+/**
+ * Agrega leads perdidos (lostReason IS NOT NULL) por motivo, no range/canal.
+ * Só inclui motivos presentes (count > 0). Ordena: conhecidos na ordem de
+ * LOSS_REASONS, depois desconhecidos. `pct` é fração (0..1). Escopo: org.
+ */
+export async function getLossReasons(
+  database: AnyDb,
+  organizationId: string,
+  filters: Filters,
+): Promise<LossReasons> {
+  const rows = await database
+    .select({
+      reason: leads.lostReason,
+      n: count(),
+    })
+    .from(leads)
+    .where(and(leadCohortWhere(organizationId, filters), isNotNull(leads.lostReason)))
+    .groupBy(leads.lostReason)
+
+  const counted = rows
+    .filter((r): r is { reason: string; n: number } => r.reason != null)
+    .map((r) => ({ reason: r.reason, count: Number(r.n ?? 0) }))
+
+  const total = counted.reduce((a, r) => a + r.count, 0)
+
+  const rank = (reason: string) => LOSS_ORDER.get(reason) ?? Number.POSITIVE_INFINITY
+  counted.sort((a, b) => {
+    const ra = rank(a.reason)
+    const rb = rank(b.reason)
+    if (ra !== rb) return ra - rb
+    // desconhecidos entre si: ordem estável por nome
+    return a.reason.localeCompare(b.reason)
+  })
+
+  return {
+    total,
+    rows: counted.map((r) => ({
+      reason: r.reason,
+      count: r.count,
+      pct: total === 0 ? 0 : r.count / total,
+    })),
+  }
+}
+
+export interface DashboardInput {
+  period?: string
+  channel: string
+  from?: string
+  to?: string
+}
+
+export interface DashboardData {
+  funnel: { counts: number[]; convGeral: number | null }
+  highlights: Highlights
+  costCards: CostCards
+  utm: UtmRankItem[]
+  creatives: CreativeItem[]
+  loss: LossReasons
+  funnelPaths: FunnelPath[]
+  donutArcs: DonutArc[]
+}
+
+/**
+ * Orquestrador: resolve o range, dispara todas as agregações do dashboard
+ * (atual vs anterior onde aplicável) e gera os SVGs derivados. Escopo: org.
+ */
+export async function getDashboardData(
+  database: AnyDb,
+  organizationId: string,
+  input: DashboardInput,
+  today: Date,
+): Promise<DashboardData> {
+  const { from, to, prevFrom, prevTo } = resolveRange(input, today)
+  const cur: Filters = { from, to, channel: input.channel }
+  const prev: Filters = { from: prevFrom, to: prevTo, channel: input.channel }
+
+  const [funnel, highlights, costCards, utm, creatives, loss] = await Promise.all([
+    getFunnel(database, organizationId, cur),
+    getHighlights(database, organizationId, cur, prev),
+    getCostCards(database, organizationId, cur, prev),
+    getUtmRanking(database, organizationId, cur),
+    getCreatives(database, organizationId, cur),
+    getLossReasons(database, organizationId, cur),
+  ])
+
+  const funnelPaths = buildFunnelPaths(funnel.counts)
+  const donutArcs = buildDonutArcs(loss.rows.map((r) => r.count))
+
+  return { funnel, highlights, costCards, utm, creatives, loss, funnelPaths, donutArcs }
 }

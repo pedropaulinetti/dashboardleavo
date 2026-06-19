@@ -7,7 +7,10 @@ import {
   getCostCards,
   getUtmRanking,
   getCreatives,
+  getLossReasons,
+  getDashboardData,
 } from '@/dashboard/queries'
+import { LOSS_REASONS } from '@/dashboard/loss-reasons'
 import { makeTestDb } from '../db'
 
 type Db = Awaited<ReturnType<typeof makeTestDb>>['db']
@@ -16,6 +19,7 @@ let db: Db
 let org: string
 let otherOrg: string
 let costOrg: string
+let lossOrg: string
 
 // Ranges determinísticos
 const cur = { from: new Date('2026-06-01T00:00:00Z'), to: new Date('2026-06-30T23:59:59Z') }
@@ -34,6 +38,7 @@ async function seedLead(opts: {
   organizationId?: string
   utmSource?: string
   utmCampaign?: string
+  lostReason?: string
 }) {
   const orgId = opts.organizationId ?? org
   const [lead] = await db
@@ -47,6 +52,7 @@ async function seedLead(opts: {
       utmCampaign: opts.utmCampaign ?? null,
       currentStage: opts.stages[opts.stages.length - 1]?.stage ?? 'leads',
       valueCents: opts.value ?? 0,
+      lostReason: opts.lostReason ?? null,
       createdAt: opts.createdAt,
       updatedAt: opts.createdAt,
     })
@@ -73,9 +79,11 @@ beforeAll(async () => {
   const [o] = await db.insert(schema.organizations).values({ name: 'Org', slug: 'org' }).returning()
   const [o2] = await db.insert(schema.organizations).values({ name: 'Other', slug: 'other' }).returning()
   const [o3] = await db.insert(schema.organizations).values({ name: 'Cost', slug: 'cost' }).returning()
+  const [o4] = await db.insert(schema.organizations).values({ name: 'Loss', slug: 'loss' }).returning()
   org = o.id
   otherOrg = o2.id
   costOrg = o3.id
+  lossOrg = o4.id
 
   const jun = d('2026-06-10T12:00:00Z')
   const may = d('2026-05-10T12:00:00Z')
@@ -111,6 +119,31 @@ beforeAll(async () => {
   await db.insert(schema.adMetrics).values([
     { organizationId: costOrg, provider: 'meta_ads', date: d('2026-06-05'), campaign: 'cc1', creative: 'ccr1', channel: 'meta', spendCents: 15000, impressions: 0, clicks: 0, sales: 1, revenueCents: 30000 },
   ])
+
+  // --- lossOrg: leads com lostReason p/ testar getLossReasons ---
+  // 3x 'Sumiu / sem retorno', 2x 'Preço / orçamento', 1x 'Timing / adiou decisão',
+  // 1x 'Motivo Desconhecido' (não está na constante -> vai por último),
+  // 2 leads sem lostReason (não devem entrar).
+  const lossSpec: { reason: string | undefined; n: number }[] = [
+    { reason: 'Sumiu / sem retorno', n: 3 },
+    { reason: 'Preço / orçamento', n: 2 },
+    { reason: 'Timing / adiou decisão', n: 1 },
+    { reason: 'Motivo Desconhecido', n: 1 },
+    { reason: undefined, n: 2 },
+  ]
+  let li = 0
+  for (const spec of lossSpec) {
+    for (let k = 0; k < spec.n; k++) {
+      await seedLead({
+        ext: `LR${li++}`,
+        channel: 'meta',
+        createdAt: jun,
+        stages: upTo(1, jun),
+        organizationId: lossOrg,
+        lostReason: spec.reason,
+      })
+    }
+  }
 })
 
 describe('getFunnelCounts', () => {
@@ -276,5 +309,84 @@ describe('getCreatives', () => {
     expect(rows.length).toBe(1)
     expect(rows[0].name).toBe('ccr1')
     expect(rows[0].revenueCents).toBe(30000)
+  })
+})
+
+describe('getLossReasons', () => {
+  it('agrega counts/pct/total e ordena pela constante (desconhecidos por último)', async () => {
+    const { rows, total } = await getLossReasons(db, lossOrg, { ...cur, channel: 'all' })
+    // total = 3+2+1+1 = 7 (os 2 sem lostReason não contam)
+    expect(total).toBe(7)
+
+    // ordem: segue LOSS_REASONS (conhecidos), depois desconhecidos.
+    // presentes conhecidos: 'Preço / orçamento' (2), 'Sumiu / sem retorno' (3),
+    //                        'Timing / adiou decisão' (1). Desconhecido: 'Motivo Desconhecido' (1).
+    expect(rows.map((r) => r.reason)).toEqual([
+      'Preço / orçamento',
+      'Sumiu / sem retorno',
+      'Timing / adiou decisão',
+      'Motivo Desconhecido',
+    ])
+    const byReason = new Map(rows.map((r) => [r.reason, r]))
+    expect(byReason.get('Sumiu / sem retorno')!.count).toBe(3)
+    expect(byReason.get('Preço / orçamento')!.count).toBe(2)
+    expect(byReason.get('Timing / adiou decisão')!.count).toBe(1)
+    expect(byReason.get('Motivo Desconhecido')!.count).toBe(1)
+    // pct é fração 0..1
+    expect(byReason.get('Sumiu / sem retorno')!.pct).toBeCloseTo(3 / 7, 10)
+    expect(byReason.get('Preço / orçamento')!.pct).toBeCloseTo(2 / 7, 10)
+    // soma das frações ≈ 1
+    expect(rows.reduce((a, r) => a + r.pct, 0)).toBeCloseTo(1, 10)
+  })
+
+  it('não inclui motivos com count 0 nem leads sem lostReason', async () => {
+    const { rows } = await getLossReasons(db, lossOrg, { ...cur, channel: 'all' })
+    // só os 4 presentes
+    expect(rows.length).toBe(4)
+    // 'Escolheu concorrente' não foi semeado -> ausente
+    expect(rows.find((r) => r.reason === 'Escolheu concorrente')).toBeUndefined()
+  })
+
+  it('não vaza dados de outra org', async () => {
+    const { rows, total } = await getLossReasons(db, org, { ...cur, channel: 'all' })
+    expect(total).toBe(0)
+    expect(rows.length).toBe(0)
+  })
+})
+
+describe('getDashboardData', () => {
+  it('retorna o objeto com as chaves esperadas e 18 funnelPaths', async () => {
+    const data = await getDashboardData(
+      db,
+      org,
+      { period: 'custom', channel: 'all', from: '2026-06-01', to: '2026-06-30' },
+      new Date('2026-06-30T00:00:00Z'),
+    )
+    expect(data).toHaveProperty('funnel')
+    expect(data).toHaveProperty('highlights')
+    expect(data).toHaveProperty('costCards')
+    expect(data).toHaveProperty('utm')
+    expect(data).toHaveProperty('creatives')
+    expect(data).toHaveProperty('loss')
+    expect(data).toHaveProperty('funnelPaths')
+    expect(data).toHaveProperty('donutArcs')
+
+    expect(data.funnel.counts).toEqual([5, 4, 3, 2, 2, 2])
+    expect(data.funnel.convGeral).toBe(2 / 5)
+    expect(data.funnelPaths.length).toBe(18)
+    // donutArcs casa com as linhas de loss (org principal: 0 motivos)
+    expect(data.donutArcs.length).toBe(data.loss.rows.length)
+  })
+
+  it('gera donutArcs a partir dos motivos de perda quando há dados', async () => {
+    const data = await getDashboardData(
+      db,
+      lossOrg,
+      { period: 'custom', channel: 'all', from: '2026-06-01', to: '2026-06-30' },
+      new Date('2026-06-30T00:00:00Z'),
+    )
+    expect(data.loss.total).toBe(7)
+    expect(data.donutArcs.length).toBe(4)
+    expect(data.funnelPaths.length).toBe(18)
   })
 })
