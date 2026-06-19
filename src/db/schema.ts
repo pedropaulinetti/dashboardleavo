@@ -55,6 +55,7 @@ export const leads = pgTable('leads', {
   utmSource: text('utm_source'),
   utmCampaign: text('utm_campaign'),
   currentStage: text('current_stage').notNull().default('leads'),
+  lostReason: text('lost_reason'),
   valueCents: integer('value_cents').notNull().default(0),
   createdAt: timestamp('created_at').notNull(),
   updatedAt: timestamp('updated_at').notNull(),
