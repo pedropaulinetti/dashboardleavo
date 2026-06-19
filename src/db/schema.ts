@@ -26,11 +26,11 @@ export const users = pgTable('users', {
   id: uuid('id').defaultRandom().primaryKey(),
   organizationId: uuid('organization_id').notNull().references(() => organizations.id),
   name: text('name').notNull(),
-  email: text('email').notNull().unique(),
+  email: text('email').notNull(),
   passwordHash: text('password_hash').notNull(),
   role: roleEnum('role').notNull().default('member'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-})
+}, (t) => ({ uqOrgEmail: unique().on(t.organizationId, t.email) }))
 
 export const integrations = pgTable('integrations', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -66,7 +66,7 @@ export const leadStageEvents = pgTable('lead_stage_events', {
   leadId: uuid('lead_id').notNull().references(() => leads.id),
   stage: text('stage').notNull(),
   occurredAt: timestamp('occurred_at').notNull(),
-})
+}, (t) => ({ uqEvent: unique().on(t.organizationId, t.leadId, t.stage, t.occurredAt) }))
 
 export const adMetrics = pgTable('ad_metrics', {
   id: uuid('id').defaultRandom().primaryKey(),

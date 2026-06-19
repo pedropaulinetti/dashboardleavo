@@ -14,4 +14,8 @@ describe('crypto', () => {
   it('texto cifrado difere a cada chamada (IV aleatório)', () => {
     expect(encrypt('x', KEY)).not.toBe(encrypt('x', KEY))
   })
+
+  it('decrypt lança erro nomeado em payload malformado', () => {
+    expect(() => decrypt('xxx', 'a'.repeat(64))).toThrow(/InvalidCiphertext/)
+  })
 })

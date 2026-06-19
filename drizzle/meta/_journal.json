@@ -8,6 +8,13 @@
       "when": 1781832190077,
       "tag": "0000_fuzzy_dark_phoenix",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1781833226040,
+      "tag": "0001_noisy_dragon_man",
+      "breakpoints": true
     }
   ]
 }
