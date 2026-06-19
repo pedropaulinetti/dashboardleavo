@@ -22,4 +22,15 @@ describe('resolveRange', () => {
     const r = resolveRange({ period: 'xyz' }, d('2026-06-15'))
     expect(r.from.toISOString().slice(0, 10)).toBe('2026-05-17')
   })
+
+  it('to é o fim do dia de hoje (inclui leads criados hoje)', () => {
+    const today = new Date('2026-06-19T14:30:00.000Z')
+    const r = resolveRange({ period: '30d' }, today)
+    // um lead criado hoje de manhã (10:00) cai dentro da janela
+    expect(r.to.getTime()).toBeGreaterThanOrEqual(
+      new Date('2026-06-19T10:00:00.000Z').getTime(),
+    )
+    // e `to` permanece no MESMO dia 2026-06-19
+    expect(r.to.toISOString().slice(0, 10)).toBe('2026-06-19')
+  })
 })

@@ -176,7 +176,7 @@ export async function getHighlights(
       receita: delta(receitaCents, prevReceita),
       vendas: delta(vendas, prevVendas),
       invest: delta(investCents, prevInvest),
-      roas: prevRoas === null ? null : delta(roas ?? 0, prevRoas),
+      roas: deltaOrNull(roas, prevRoas),
     },
   }
 }
@@ -268,18 +268,28 @@ export async function getUtmRanking(
   organizationId: string,
   filters: Filters,
 ): Promise<UtmRankItem[]> {
+  // "Venda" = o lead ATINGIU a etapa vendas (tem evento em lead_stage_events com
+  // stage='vendas'), coerente com o funil/highlights — não depende do currentStage,
+  // que pode ter regredido. EXISTS correlacionado por lead/org.
+  const reachedVendas = sql`exists (
+    select 1 from ${leadStageEvents}
+    where ${leadStageEvents.leadId} = ${leads.id}
+      and ${leadStageEvents.organizationId} = ${organizationId}
+      and ${leadStageEvents.stage} = 'vendas'
+  )`
+
   const rows = await database
     .select({
       source: leads.utmSource,
       campaign: leads.utmCampaign,
       leads: count(),
-      vendas: sql<number>`count(*) filter (where ${eq(leads.currentStage, 'vendas')})`,
+      vendas: sql<number>`count(*) filter (where ${reachedVendas})`,
     })
     .from(leads)
     .where(leadCohortWhere(organizationId, filters))
     .groupBy(leads.utmSource, leads.utmCampaign)
     .orderBy(
-      desc(sql`count(*) filter (where ${eq(leads.currentStage, 'vendas')})`),
+      desc(sql`count(*) filter (where ${reachedVendas})`),
       desc(count()),
     )
     .limit(5)

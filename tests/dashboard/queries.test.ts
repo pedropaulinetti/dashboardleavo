@@ -20,6 +20,8 @@ let org: string
 let otherOrg: string
 let costOrg: string
 let lossOrg: string
+let roasOrg: string
+let utmRegOrg: string
 
 // Ranges determinísticos
 const cur = { from: new Date('2026-06-01T00:00:00Z'), to: new Date('2026-06-30T23:59:59Z') }
@@ -80,10 +82,14 @@ beforeAll(async () => {
   const [o2] = await db.insert(schema.organizations).values({ name: 'Other', slug: 'other' }).returning()
   const [o3] = await db.insert(schema.organizations).values({ name: 'Cost', slug: 'cost' }).returning()
   const [o4] = await db.insert(schema.organizations).values({ name: 'Loss', slug: 'loss' }).returning()
+  const [o5] = await db.insert(schema.organizations).values({ name: 'Roas', slug: 'roas' }).returning()
+  const [o6] = await db.insert(schema.organizations).values({ name: 'UtmReg', slug: 'utmreg' }).returning()
   org = o.id
   otherOrg = o2.id
   costOrg = o3.id
   lossOrg = o4.id
+  roasOrg = o5.id
+  utmRegOrg = o6.id
 
   const jun = d('2026-06-10T12:00:00Z')
   const may = d('2026-05-10T12:00:00Z')
@@ -144,6 +150,28 @@ beforeAll(async () => {
       })
     }
   }
+
+  // --- roasOrg: atual SEM ad_metrics (invest 0 -> roas null) mas COM receita;
+  // anterior (maio) COM invest e receita (roas não-null) -> deltas.roas deve ser null.
+  await seedLead({ ext: 'R1', channel: 'meta', createdAt: jun, value: 50000, stages: full(jun), organizationId: roasOrg })
+  await seedLead({ ext: 'R0', channel: 'meta', createdAt: may, value: 40000, stages: full(may), organizationId: roasOrg })
+  await db.insert(schema.adMetrics).values([
+    { organizationId: roasOrg, provider: 'meta_ads', date: d('2026-05-10'), campaign: 'rc', creative: 'rcr', channel: 'meta', spendCents: 20000, impressions: 1000, clicks: 50, sales: 1, revenueCents: 40000 },
+  ])
+
+  // --- utmRegOrg: lead que ATINGIU 'vendas' mas REGREDIU (currentStage != 'vendas').
+  // Deve contar como venda no ranking (semântica por evento, não por currentStage).
+  await seedLead({
+    ext: 'UR1',
+    channel: 'meta',
+    createdAt: jun,
+    value: 70000,
+    organizationId: utmRegOrg,
+    utmSource: 'facebook',
+    utmCampaign: 'reg',
+    // passou por vendas e depois regrediu para negociacoes
+    stages: [...full(jun), { stage: 'negociacoes', at: d('2026-06-11T12:00:00Z') }],
+  })
 })
 
 describe('getFunnelCounts', () => {
@@ -192,6 +220,15 @@ describe('getHighlights', () => {
     expect(h.deltas.receita).toBeNull()
     expect(h.deltas.vendas).toBeNull()
     expect(h.deltas.invest).toBeNull()
+    expect(h.deltas.roas).toBeNull()
+  })
+
+  it('deltas.roas é null quando roas atual é null (invest atual 0) mesmo com anterior não-null', async () => {
+    const h = await getHighlights(db, roasOrg, { ...cur, channel: 'all' }, { ...prev, channel: 'all' })
+    // atual: receita 50000, invest 0 -> roas null
+    expect(h.investCents).toBe(0)
+    expect(h.roas).toBeNull()
+    // anterior: roas 40000/20000 = 2 (não-null) -> mas delta deve ser null
     expect(h.deltas.roas).toBeNull()
   })
 })
@@ -284,6 +321,17 @@ describe('getUtmRanking', () => {
     expect(rows.length).toBe(1)
     expect(rows[0].campaign).toBe('cc1')
     expect(rows[0].leads).toBe(1)
+  })
+
+  it('conta venda por EVENTO vendas, mesmo se o lead regrediu (currentStage != vendas)', async () => {
+    const rows = await getUtmRanking(db, utmRegOrg, { ...cur, channel: 'all' })
+    expect(rows.length).toBe(1)
+    const r = rows[0]
+    expect(r.campaign).toBe('reg')
+    expect(r.leads).toBe(1)
+    // tem evento 'vendas' embora currentStage seja 'negociacoes' -> conta como venda
+    expect(r.vendas).toBe(1)
+    expect(r.conv).toBe(1)
   })
 })
 
