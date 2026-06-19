@@ -70,6 +70,16 @@ describe('handleWebhook', () => {
     expect(after).toBe(before)
   })
 
+  it('não ingere quando a integração webhook está desconectada', async () => {
+    const [c] = await db.insert(schema.organizations).values({ name: 'C', slug: 'c' }).returning()
+    await db
+      .insert(schema.integrations)
+      .values({ organizationId: c.id, provider: 'webhook', status: 'disconnected', webhookToken: 'tokC' })
+    const res = await handleWebhook(db, 'tokC', { x: 1 })
+    expect(res).toEqual({ status: 'not_found' })
+    expect(await rawCount(c.id)).toBe(0)
+  })
+
   it('escopa o raw_event à org dona do token (isolamento)', async () => {
     const beforeA = await rawCount(orgA)
     const res = await handleWebhook(db, 'tokB', { from: 'b' })

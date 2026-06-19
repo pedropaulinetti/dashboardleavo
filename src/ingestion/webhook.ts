@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core'
 import { integrations, rawEvents } from '@/db/schema'
 
@@ -18,7 +18,9 @@ export async function handleWebhook(
       provider: integrations.provider,
     })
     .from(integrations)
-    .where(eq(integrations.webhookToken, token))
+    // Só ingere se a integração estiver conectada: desconectar pausa a ingestão
+    // (o token é preservado, então reconectar mantém a mesma URL de webhook).
+    .where(and(eq(integrations.webhookToken, token), eq(integrations.status, 'connected')))
     .limit(1)
 
   if (!row) {
