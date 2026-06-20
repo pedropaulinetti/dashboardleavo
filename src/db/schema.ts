@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, integer, timestamp, jsonb, boolean, pgEnum, unique } from 'drizzle-orm/pg-core'
+import { pgTable, uuid, text, integer, timestamp, jsonb, boolean, pgEnum, unique, index } from 'drizzle-orm/pg-core'
 
 export const roleEnum = pgEnum('role', ['owner', 'member'])
 export const providerEnum = pgEnum('provider', ['leavo', 'datacrazy', 'meta_ads', 'webhook'])
@@ -51,6 +51,7 @@ export const leads = pgTable('leads', {
   organizationId: uuid('organization_id').notNull().references(() => organizations.id),
   provider: providerEnum('provider').notNull(),
   externalId: text('external_id').notNull(),
+  identityKey: text('identity_key'),
   channel: text('channel'),
   utmSource: text('utm_source'),
   utmCampaign: text('utm_campaign'),
@@ -59,7 +60,10 @@ export const leads = pgTable('leads', {
   valueCents: integer('value_cents').notNull().default(0),
   createdAt: timestamp('created_at').notNull(),
   updatedAt: timestamp('updated_at').notNull(),
-}, (t) => ({ uqExternal: unique().on(t.organizationId, t.provider, t.externalId) }))
+}, (t) => ({
+  uqExternal: unique().on(t.organizationId, t.provider, t.externalId),
+  idxIdentity: index('leads_org_identity_idx').on(t.organizationId, t.identityKey),
+}))
 
 export const leadStageEvents = pgTable('lead_stage_events', {
   id: uuid('id').defaultRandom().primaryKey(),
