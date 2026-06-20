@@ -22,6 +22,7 @@ let costOrg: string
 let lossOrg: string
 let roasOrg: string
 let utmRegOrg: string
+let identityOrg: string
 
 // Ranges determinísticos
 const cur = { from: new Date('2026-06-01T00:00:00Z'), to: new Date('2026-06-30T23:59:59Z') }
@@ -41,14 +42,17 @@ async function seedLead(opts: {
   utmSource?: string
   utmCampaign?: string
   lostReason?: string
+  provider?: 'leavo' | 'datacrazy' | 'meta_ads' | 'webhook'
+  identityKey?: string
 }) {
   const orgId = opts.organizationId ?? org
   const [lead] = await db
     .insert(schema.leads)
     .values({
       organizationId: orgId,
-      provider: 'leavo',
+      provider: opts.provider ?? 'leavo',
       externalId: opts.ext,
+      identityKey: opts.identityKey ?? null,
       channel: opts.channel,
       utmSource: opts.utmSource ?? null,
       utmCampaign: opts.utmCampaign ?? null,
@@ -84,12 +88,14 @@ beforeAll(async () => {
   const [o4] = await db.insert(schema.organizations).values({ name: 'Loss', slug: 'loss' }).returning()
   const [o5] = await db.insert(schema.organizations).values({ name: 'Roas', slug: 'roas' }).returning()
   const [o6] = await db.insert(schema.organizations).values({ name: 'UtmReg', slug: 'utmreg' }).returning()
+  const [o7] = await db.insert(schema.organizations).values({ name: 'Identity', slug: 'identity' }).returning()
   org = o.id
   otherOrg = o2.id
   costOrg = o3.id
   lossOrg = o4.id
   roasOrg = o5.id
   utmRegOrg = o6.id
+  identityOrg = o7.id
 
   const jun = d('2026-06-10T12:00:00Z')
   const may = d('2026-05-10T12:00:00Z')
@@ -172,6 +178,38 @@ beforeAll(async () => {
     // passou por vendas e depois regrediu para negociacoes
     stages: [...full(jun), { stage: 'negociacoes', at: d('2026-06-11T12:00:00Z') }],
   })
+
+  // --- identityOrg: dedup por identidade entre providers.
+  // Cliente A em DOIS providers (mesmo identityKey 'a@x.com'):
+  //   - leavo: atingiu até mql; datacrazy: atingiu até vendas.
+  // Cliente B (identityKey 'b@x.com', 1 provider): atingiu até agendadas.
+  await seedLead({
+    ext: 'A-leavo',
+    channel: 'meta',
+    createdAt: jun,
+    organizationId: identityOrg,
+    provider: 'leavo',
+    identityKey: 'a@x.com',
+    stages: upTo(2, jun), // leads, mql
+  })
+  await seedLead({
+    ext: 'A-datacrazy',
+    channel: 'meta',
+    createdAt: jun,
+    organizationId: identityOrg,
+    provider: 'datacrazy',
+    identityKey: 'a@x.com',
+    stages: full(jun), // leads..vendas
+  })
+  await seedLead({
+    ext: 'B',
+    channel: 'meta',
+    createdAt: jun,
+    organizationId: identityOrg,
+    provider: 'leavo',
+    identityKey: 'b@x.com',
+    stages: upTo(3, jun), // leads, mql, agendadas
+  })
 })
 
 describe('getFunnelCounts', () => {
@@ -188,6 +226,15 @@ describe('getFunnelCounts', () => {
   it('não vaza dados de outra org', async () => {
     const counts = await getFunnelCounts(db, otherOrg, { ...cur, channel: 'all' })
     expect(counts).toEqual([1, 1, 1, 1, 1, 1])
+  })
+
+  it('deduplica por identidade: mesmo cliente entre providers conta uma vez', async () => {
+    const counts = await getFunnelCounts(db, identityOrg, { ...cur, channel: 'all' })
+    // A (leavo até mql + datacrazy até vendas) conta como 1 identidade por etapa;
+    // B até agendadas.
+    // leads: A+B = 2; mql: A+B = 2; agendadas: A(datacrazy)+B = 2;
+    // realizadas: só A = 1; negociacoes: só A = 1; vendas: só A = 1.
+    expect(counts).toEqual([2, 2, 2, 1, 1, 1])
   })
 })
 

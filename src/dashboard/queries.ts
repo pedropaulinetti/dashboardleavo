@@ -37,7 +37,11 @@ export async function getFunnelCounts(
   const rows = await database
     .select({
       stage: leadStageEvents.stage,
-      n: countDistinct(leadStageEvents.leadId),
+      // Dedup por identidade: o mesmo cliente pode ter um lead em cada provider
+      // (ex.: leavo e datacrazy) com o mesmo identityKey — conta uma vez. Quando
+      // identityKey é nulo, cada lead é sua própria identidade (id), preservando
+      // o comportamento de 1 provider.
+      n: countDistinct(sql`coalesce(${leads.identityKey}, ${leads.id}::text)`),
     })
     .from(leadStageEvents)
     .innerJoin(leads, eq(leadStageEvents.leadId, leads.id))
