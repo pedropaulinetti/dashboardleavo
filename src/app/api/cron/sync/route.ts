@@ -10,6 +10,8 @@ import { db, schema } from '@/db'
 import { syncOrg } from '@/ingestion/sync'
 
 export const dynamic = 'force-dynamic'
+// O 1º sync é pesado (puxa toda a base do CRM) — pede o máximo de tempo permitido.
+export const maxDuration = 60
 
 export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET
