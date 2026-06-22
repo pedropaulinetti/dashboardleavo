@@ -8,6 +8,15 @@ import type { NormalizedLead, NormalizedStageEvent } from '@/ingestion/types'
 const STAGE_NEGOCIACAO = 'stg-negociacao'
 const STAGE_FECHADO = 'stg-fechado'
 const STAGE_IGNORE = 'stg-ignore'
+// estágio do funil "PERDIDOS" — NÃO mapeado (perda fica só no donut)
+const STAGE_PERDIDOS = 'stg-perdidos'
+// estágios de OUTRO pipeline (Outbound) — nenhum mapeado → pipeline fora de escopo
+const STAGE_OUT_NEG = 'stg-out-neg'
+const STAGE_OUT_FECHADO = 'stg-out-fechado'
+
+// ids de pipeline
+const PIPE_FUNIL = 'pf'
+const PIPE_OUTBOUND = 'po'
 
 const config: DataCrazyConfig = {
   stageMap: {
@@ -19,7 +28,9 @@ const config: DataCrazyConfig = {
   lossReasonMap: { 'reason-1': 'Preço alto' },
 }
 
-// 4 negócios: won, in_process(negociacao), lost, in_process(ignore -> pulado)
+// Negócios em 2 pipelines:
+//  - Funil de Vendas (pf): won, in_process(negociacao), lost(PERDIDOS não mapeado), in_process(ignore -> pulado)
+//  - Outbound (po): lost e won — pipeline sem nenhum estágio mapeado → fora de escopo → pulados
 const businesses = [
   {
     id: 'biz-won',
@@ -42,7 +53,7 @@ const businesses = [
       contacts: [],
       createdAt: '2026-01-01T10:00:00.000Z',
     },
-    stage: { id: STAGE_FECHADO, name: 'Fechado', index: 5 },
+    stage: { id: STAGE_FECHADO, name: 'Fechado', index: 5, pipeline: { id: PIPE_FUNIL, name: 'Funil de Vendas' } },
   },
   {
     id: 'biz-neg',
@@ -67,14 +78,14 @@ const businesses = [
       ],
       createdAt: '2026-01-02T09:00:00.000Z',
     },
-    stage: { id: STAGE_NEGOCIACAO, name: 'Negociação', index: 4 },
+    stage: { id: STAGE_NEGOCIACAO, name: 'Negociação', index: 4, pipeline: { id: PIPE_FUNIL, name: 'Funil de Vendas' } },
   },
   {
     id: 'biz-lost',
     createdAt: '2026-01-03T11:00:00.000Z',
     lastMovedAt: '2026-01-07T15:00:00.000Z',
     statusChangedAt: '2026-01-07T15:00:00.000Z',
-    stageId: STAGE_NEGOCIACAO,
+    stageId: STAGE_PERDIDOS,
     leadId: 'lead-lost',
     total: 500,
     discount: 0,
@@ -90,7 +101,7 @@ const businesses = [
       contacts: [{ platform: 'EMAIL', contactId: 'carla@example.com' }],
       createdAt: '2026-01-03T11:00:00.000Z',
     },
-    stage: { id: STAGE_NEGOCIACAO, name: 'Negociação', index: 4 },
+    stage: { id: STAGE_PERDIDOS, name: 'PERDIDOS', index: 6, pipeline: { id: PIPE_FUNIL, name: 'Funil de Vendas' } },
   },
   {
     id: 'biz-ignore',
@@ -113,7 +124,54 @@ const businesses = [
       contacts: [],
       createdAt: '2026-01-04T11:00:00.000Z',
     },
-    stage: { id: STAGE_IGNORE, name: 'Pré', index: 0 },
+    stage: { id: STAGE_IGNORE, name: 'Pré', index: 0, pipeline: { id: PIPE_FUNIL, name: 'Funil de Vendas' } },
+  },
+  // Outbound — pipeline fora de escopo (nenhum estágio mapeado)
+  {
+    id: 'biz-out-lost',
+    createdAt: '2026-01-02T11:00:00.000Z',
+    lastMovedAt: '2026-01-03T11:30:00.000Z',
+    statusChangedAt: '2026-01-03T11:30:00.000Z',
+    stageId: STAGE_OUT_NEG,
+    leadId: 'lead-out-lost',
+    total: 800,
+    discount: 0,
+    status: 'lost',
+    lossReasonId: 'reason-1',
+    externalId: null,
+    lead: {
+      id: 'lead-out-lost',
+      name: 'Edu',
+      email: 'edu@example.com',
+      phone: null,
+      source: 'Outbound',
+      contacts: [],
+      createdAt: '2026-01-02T11:00:00.000Z',
+    },
+    stage: { id: STAGE_OUT_NEG, name: 'Negociação Outbound', index: 3, pipeline: { id: PIPE_OUTBOUND, name: 'Outbound' } },
+  },
+  {
+    id: 'biz-out-won',
+    createdAt: '2026-01-02T12:00:00.000Z',
+    lastMovedAt: '2026-01-03T12:30:00.000Z',
+    statusChangedAt: '2026-01-03T12:30:00.000Z',
+    stageId: STAGE_OUT_FECHADO,
+    leadId: 'lead-out-won',
+    total: 900,
+    discount: 0,
+    status: 'won',
+    lossReasonId: null,
+    externalId: null,
+    lead: {
+      id: 'lead-out-won',
+      name: 'Fabi',
+      email: 'fabi@example.com',
+      phone: null,
+      source: 'Outbound',
+      contacts: [],
+      createdAt: '2026-01-02T12:00:00.000Z',
+    },
+    stage: { id: STAGE_OUT_FECHADO, name: 'Fechado Outbound', index: 5, pipeline: { id: PIPE_OUTBOUND, name: 'Outbound' } },
   },
 ]
 
@@ -192,7 +250,7 @@ describe('datacrazyAdapter', () => {
     ])
   })
 
-  it('lost preenche lostReason e NÃO emite evento de vendas', async () => {
+  it('lost (no funil) vira lead com lostReason e NENHUM stage event (só donut)', async () => {
     const r = await datacrazyAdapter.pull({
       credentials: { apiKey: 'k' },
       cursor: null,
@@ -202,9 +260,10 @@ describe('datacrazyAdapter', () => {
 
     const lost = leadById(r.leads, 'biz-lost')
     expect(lost.lostReason).toBe('Preço alto')
-    const stages = stagesOf(r.stageEvents, 'biz-lost')
-    expect(stages).not.toContain('vendas')
-    expect(stages).toEqual(['leads', 'mql', 'agendadas', 'realizadas', 'negociacoes'])
+    expect(lost.currentStage).toBe('negociacoes') // apenas rótulo; não afeta funil
+    // perda NÃO entra no funil de etapas → nenhum stage event para esse lead
+    expect(stagesOf(r.stageEvents, 'biz-lost')).toEqual([])
+    expect(r.stageEvents.some((e) => e.leadExternalId === 'biz-lost')).toBe(false)
   })
 
   it('identityKey derivado de email e dos contacts (WhatsApp)', async () => {
@@ -250,6 +309,19 @@ describe('datacrazyAdapter', () => {
       fetchImpl: makeFetch(),
     })
     expect(r.nextCursor).toBe('2026-01-07T15:00:00.000Z')
+  })
+
+  it('negócios de pipeline fora de escopo (Outbound) são pulados (won e lost)', async () => {
+    const r = await datacrazyAdapter.pull({
+      credentials: { apiKey: 'k' },
+      cursor: null,
+      config,
+      fetchImpl: makeFetch(),
+    })
+    expect(r.leads.find((l) => l.externalId === 'biz-out-lost')).toBeUndefined()
+    expect(r.leads.find((l) => l.externalId === 'biz-out-won')).toBeUndefined()
+    expect(stagesOf(r.stageEvents, 'biz-out-lost')).toEqual([])
+    expect(stagesOf(r.stageEvents, 'biz-out-won')).toEqual([])
   })
 
   it('passa filter[lastMovedAfter] quando há cursor', async () => {

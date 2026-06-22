@@ -51,7 +51,12 @@ type Business = {
   lossReasonId?: string | null
   externalId?: string | null
   lead?: Lead | null
-  stage?: { id: string; name: string; index: number } | null
+  stage?: {
+    id: string
+    name: string
+    index: number
+    pipeline?: { id: string; name?: string } | null
+  } | null
 }
 
 type BusinessesResponse = { count: number; data: Business[] }
@@ -86,22 +91,6 @@ function lostReasonFor(business: Business, config: DataCrazyConfig | undefined):
   const id = business.lossReasonId
   if (id && config?.lossReasonMap?.[id]) return config.lossReasonMap[id]
   return id ?? 'Perdido'
-}
-
-// Resolve a etapa final do funil aplicando o mapeamento + regras de won/lost.
-// Devolve null quando o business deve ser PULADO (estágio "não usar").
-function resolveFunnelStage(
-  business: Business,
-  config: DataCrazyConfig | undefined,
-): FunnelStage | null {
-  const mapped = config ? mapStage(config.stageMap, business.stageId) : null
-  // Estágio não mapeado / "não usar" → pular SEMPRE (mesmo ganho/perdido). Assim só
-  // contam os negócios dos pipelines que o usuário realmente mapeou no funil.
-  if (mapped == null) return null
-  // Ganho marca venda mesmo que o estágio atual seja anterior (ex.: marcado como ganho
-  // ainda em "Negociação"). Perdido mantém o estágio mapeado (e ganha lostReason no pull).
-  if (business.status === 'won') return 'vendas'
-  return mapped
 }
 
 // Emite um evento para CADA etapa de 'leads' até a etapa final (inclusive),
@@ -157,35 +146,69 @@ export const datacrazyAdapter: SourceAdapter = {
       if (typeof count === 'number' && all.length >= count) break
     }
 
+    // PASSE 1 — descobrir os pipelines "em escopo" do funil: um pipeline está em escopo
+    // se existe ≥1 negócio cujo estágio está mapeado (não-ignore) no stageMap. Assim só
+    // contam negócios dos pipelines que o usuário realmente mapeou (ex.: "Funil de Vendas"),
+    // ignorando outros pipelines (Outbound/CS) que aparecem na mesma conta.
+    const inScopePipelines = new Set<string>()
+    for (const business of all) {
+      const mapped = config ? mapStage(config.stageMap, business.stageId) : null
+      const pipelineId = business.stage?.pipeline?.id
+      if (mapped != null && pipelineId) inScopePipelines.add(pipelineId)
+    }
+
     const leads: NormalizedLead[] = []
     const stageEvents: NormalizedStageEvent[] = []
     let maxLastMoved: string | null = cursor
 
+    // PASSE 2 — normalizar.
     for (const business of all) {
       const lastMoved = business.lastMovedAt ?? business.statusChangedAt ?? null
       if (lastMoved && (maxLastMoved == null || lastMoved > maxLastMoved)) {
         maxLastMoved = lastMoved
       }
 
-      const funnelStage = resolveFunnelStage(business, config)
-      if (funnelStage == null) continue // estágio não mapeado e não é won/lost → pula
+      const mapped = config ? mapStage(config.stageMap, business.stageId) : null
+      const pipelineId = business.stage?.pipeline?.id
+      const inScope = !!pipelineId && inScopePipelines.has(pipelineId)
 
-      const isLost = business.status === 'lost'
+      // currentStage final + emissão (ou não) de stage events, por status.
+      let currentStage: FunnelStage
+      let lostReason: string | null = null
+      let emitEvents = true
+
+      if (business.status === 'lost') {
+        // Perda só no donut: vira lead com lostReason, SEM nenhum stage event (não entra
+        // no funil de etapas). Fora de escopo → pula.
+        if (!inScope) continue
+        currentStage = 'negociacoes' // apenas rótulo; não afeta o funil (sem events)
+        lostReason = lostReasonFor(business, config)
+        emitEvents = false
+      } else if (business.status === 'won') {
+        // Ganho em pipeline do funil = venda (não depende de o estágio "Fechado" estar
+        // mapeado). Fora de escopo → pula.
+        if (!inScope) continue
+        currentStage = 'vendas'
+      } else {
+        // in_process (ou outro): segue o mapeamento. Estágio não mapeado → pula.
+        if (mapped == null) continue
+        currentStage = mapped
+      }
 
       leads.push({
         externalId: business.id,
         channel: (business.lead?.source ?? '').trim().toLowerCase() || undefined,
         utmSource: undefined,
         utmCampaign: undefined,
-        currentStage: funnelStage,
+        currentStage,
         valueCents: toCents(business.total, config?.valueUnit),
-        lostReason: isLost ? lostReasonFor(business, config) : null,
+        lostReason,
         identityKey: deriveIdentityKey(business.lead),
         createdAt: new Date(business.createdAt),
         updatedAt: new Date(business.lastMovedAt ?? business.createdAt),
       })
 
-      stageEvents.push(...buildStageEvents(business, funnelStage))
+      if (emitEvents) stageEvents.push(...buildStageEvents(business, currentStage))
     }
 
     return { leads, stageEvents, adMetrics: [], nextCursor: maxLastMoved }
