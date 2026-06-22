@@ -89,6 +89,9 @@ function groupStages(stages: ProviderStage[]): { group: string; stages: Provider
 export default function StageMapping({ provider }: { provider: 'leavo' | 'datacrazy' }) {
   const [pending, startTransition] = useTransition()
   const [loaded, setLoaded] = useState<{ stages: ProviderStage[]; current: StageMap } | null>(null)
+  // Estado CONTROLADO das escolhas (por stageId) — assim as seleções nunca "somem"
+  // numa re-renderização (selects controlados em vez de defaultValue/uncontrolled).
+  const [values, setValues] = useState<Record<string, string>>({})
   const [error, setError] = useState<string | null>(null)
   const [saveState, formAction] = useActionState(
     (prev: Awaited<ReturnType<typeof saveMappingAction>> | null, fd: FormData) =>
@@ -101,6 +104,9 @@ export default function StageMapping({ provider }: { provider: 'leavo' | 'datacr
     startTransition(async () => {
       const res: LoadStagesResult = await loadStagesAction(provider)
       if (res.ok) {
+        const init: Record<string, string> = {}
+        for (const s of res.stages) init[s.id] = res.current[s.id] ?? 'ignore'
+        setValues(init)
         setLoaded({ stages: res.stages, current: res.current })
       } else {
         setLoaded(null)
@@ -189,7 +195,6 @@ export default function StageMapping({ provider }: { provider: 'leavo' | 'datacr
               </div>
               {stages.map((stage) => {
                 const fieldId = `stage_${stage.id}`
-                const currentValue = loaded.current[stage.id] ?? 'ignore'
                 return (
                   <div
                     key={stage.id}
@@ -202,7 +207,8 @@ export default function StageMapping({ provider }: { provider: 'leavo' | 'datacr
                     </div>
                     <select
                       name={fieldId}
-                      defaultValue={currentValue}
+                      value={values[stage.id] ?? 'ignore'}
+                      onChange={(e) => setValues((v) => ({ ...v, [stage.id]: e.target.value }))}
                       style={{ ...inputStyle, width: 'auto', minWidth: 150 }}
                     >
                       <option value="ignore">— não usar —</option>
