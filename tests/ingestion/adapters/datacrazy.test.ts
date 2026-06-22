@@ -49,7 +49,12 @@ const businesses = [
       name: 'Ana',
       email: 'ANA@Example.com',
       phone: null,
-      source: 'Instagram',
+      source: 'leavo_lp_videodemo',
+      tags: [
+        { name: 'LP-PRINCIPAL' },
+        { name: 'META' },
+        { name: '-10K' },
+      ],
       contacts: [],
       createdAt: '2026-01-01T10:00:00.000Z',
     },
@@ -72,7 +77,8 @@ const businesses = [
       name: 'Bruno',
       email: null,
       phone: null,
-      source: 'Google Ads',
+      source: 'homepage',
+      tags: [{ name: 'IMPLEMENTAÇÃO' }],
       contacts: [
         { platform: 'WHATSAPP', contactId: '+55 (11) 99999-1234' },
       ],
@@ -97,7 +103,8 @@ const businesses = [
       name: 'Carla',
       email: 'carla@example.com',
       phone: null,
-      source: 'Indicação',
+      source: null,
+      tags: [{ name: 'indicação' }],
       contacts: [{ platform: 'EMAIL', contactId: 'carla@example.com' }],
       createdAt: '2026-01-03T11:00:00.000Z',
     },
@@ -290,15 +297,42 @@ describe('datacrazyAdapter', () => {
     expect(stagesOf(r.stageEvents, 'biz-ignore')).toEqual([])
   })
 
-  it('channel normalizado e adMetrics vazio', async () => {
+  it('utmSource = source e channel derivado da tag META (won)', async () => {
     const r = await datacrazyAdapter.pull({
       credentials: { apiKey: 'k' },
       cursor: null,
       config,
       fetchImpl: makeFetch(),
     })
-    expect(leadById(r.leads, 'biz-won').channel).toBe('instagram')
+    const won = leadById(r.leads, 'biz-won')
+    expect(won.utmSource).toBe('leavo_lp_videodemo')
+    expect(won.utmCampaign).toBeUndefined()
+    expect(won.channel).toBe('meta')
     expect(r.adMetrics).toEqual([])
+  })
+
+  it('tag indicação sem source → channel indica e utmSource undefined (também em lost)', async () => {
+    const r = await datacrazyAdapter.pull({
+      credentials: { apiKey: 'k' },
+      cursor: null,
+      config,
+      fetchImpl: makeFetch(),
+    })
+    const lost = leadById(r.leads, 'biz-lost')
+    expect(lost.channel).toBe('indica')
+    expect(lost.utmSource).toBeUndefined()
+  })
+
+  it('source homepage sem tag de canal → channel = homepage (fallback), utmSource = homepage', async () => {
+    const r = await datacrazyAdapter.pull({
+      credentials: { apiKey: 'k' },
+      cursor: null,
+      config,
+      fetchImpl: makeFetch(),
+    })
+    const neg = leadById(r.leads, 'biz-neg')
+    expect(neg.channel).toBe('homepage')
+    expect(neg.utmSource).toBe('homepage')
   })
 
   it('nextCursor é o maior lastMovedAt visto', async () => {

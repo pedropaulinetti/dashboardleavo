@@ -34,6 +34,7 @@ type Lead = {
   email?: string | null
   phone?: string | null
   source?: string | null
+  tags?: { name?: string | null }[] | null
   contacts?: Contact[] | null
   createdAt?: string | null
 }
@@ -80,6 +81,34 @@ function deriveIdentityKey(lead: Lead | null | undefined): string | null {
     if (c.platform === 'WHATSAPP' && !phone) phone = c.contactId
   }
   return normalizeIdentity(email, phone)
+}
+
+// A origem que aparece no ranking de UTMs: lead.source com trim; vazio/null → undefined.
+function deriveUtmSource(lead: Lead | null | undefined): string | undefined {
+  const source = (lead?.source ?? '').trim()
+  return source || undefined
+}
+
+// Regras de canal a partir do nome das tags (case-insensitive). Ordem de varredura
+// importa: a primeira correspondência vence.
+const CHANNEL_RULES: { needle: string; channel: string }[] = [
+  { needle: 'meta', channel: 'meta' },
+  { needle: 'google', channel: 'google' },
+  { needle: 'whats', channel: 'whats' },
+  { needle: 'indica', channel: 'indica' },
+  { needle: 'parceir', channel: 'parceiro' },
+  { needle: 'agencia', channel: 'parceiro' },
+]
+
+// Deriva o canal: varre os nomes das tags procurando uma regra; se nenhuma casar,
+// usa o source (minúsculas/trim) como fallback, ou undefined se vazio.
+function deriveChannel(tags: Lead['tags'], source: string | null | undefined): string | undefined {
+  const names = (tags ?? []).map((t) => (t?.name ?? '').toLowerCase())
+  for (const { needle, channel } of CHANNEL_RULES) {
+    if (names.some((n) => n.includes(needle))) return channel
+  }
+  const fallback = (source ?? '').trim().toLowerCase()
+  return fallback || undefined
 }
 
 function toCents(total: number | null | undefined, unit: DataCrazyConfig['valueUnit'] | undefined): number {
@@ -197,8 +226,8 @@ export const datacrazyAdapter: SourceAdapter = {
 
       leads.push({
         externalId: business.id,
-        channel: (business.lead?.source ?? '').trim().toLowerCase() || undefined,
-        utmSource: undefined,
+        channel: deriveChannel(business.lead?.tags, business.lead?.source),
+        utmSource: deriveUtmSource(business.lead),
         utmCampaign: undefined,
         currentStage,
         valueCents: toCents(business.total, config?.valueUnit),
