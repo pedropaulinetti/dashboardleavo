@@ -113,52 +113,66 @@ function coerceFunnelValue(value: string): FunnelStage | 'ignore' {
   return FUNNEL_SET.has(value) ? (value as FunnelStage) : 'ignore'
 }
 
+export type SaveResult = { ok: boolean; error?: string }
+
 // Salva o mapeamento (owner-only). Faz merge com o config existente.
-export async function saveMappingAction(provider: string, formData: FormData) {
-  const organizationId = await requireOwner()
+// Assinatura no padrão do useActionState: (provider, prevState, formData).
+// NÃO chama revalidatePath: a página não exibe o config (ele é relido sob
+// demanda por loadStagesAction), e revalidar resetaria o componente client.
+export async function saveMappingAction(
+  provider: string,
+  _prev: SaveResult | null,
+  formData: FormData,
+): Promise<SaveResult> {
+  try {
+    const organizationId = await requireOwner()
 
-  if (!isFunnelProvider(provider)) {
-    throw new Error('Mapeamento de etapas indisponível para esta integração.')
-  }
-
-  const mapping: StageMapping = {}
-  for (const [key, value] of formData.entries()) {
-    if (typeof key === 'string' && key.startsWith('stage_')) {
-      const stageId = key.slice('stage_'.length)
-      if (stageId) mapping[stageId] = coerceFunnelValue(String(value))
+    if (!isFunnelProvider(provider)) {
+      return { ok: false, error: 'Mapeamento indisponível para esta integração.' }
     }
-  }
 
-  const [row] = await db
-    .select()
-    .from(integrations)
-    .where(
-      and(eq(integrations.organizationId, organizationId), eq(integrations.provider, provider)),
-    )
-
-  const existingConfig = (row?.config ?? {}) as Record<string, unknown>
-
-  let nextConfig: Record<string, unknown>
-  if (provider === 'datacrazy') {
-    const valueUnitRaw = String(formData.get('valueUnit') ?? 'reais')
-    const valueUnit = valueUnitRaw === 'cents' ? 'cents' : 'reais'
-    const sourceFieldRaw = String(formData.get('sourceField') ?? '').trim()
-    nextConfig = {
-      ...existingConfig,
-      stageMap: mapping,
-      valueUnit,
-      ...(sourceFieldRaw ? { sourceField: sourceFieldRaw } : {}),
+    const mapping: StageMapping = {}
+    for (const [key, value] of formData.entries()) {
+      if (typeof key === 'string' && key.startsWith('stage_')) {
+        const stageId = key.slice('stage_'.length)
+        if (stageId) mapping[stageId] = coerceFunnelValue(String(value))
+      }
     }
-  } else {
-    nextConfig = { ...existingConfig, statusMap: mapping }
+
+    const [row] = await db
+      .select()
+      .from(integrations)
+      .where(
+        and(eq(integrations.organizationId, organizationId), eq(integrations.provider, provider)),
+      )
+
+    const existingConfig = (row?.config ?? {}) as Record<string, unknown>
+
+    let nextConfig: Record<string, unknown>
+    if (provider === 'datacrazy') {
+      const valueUnitRaw = String(formData.get('valueUnit') ?? 'reais')
+      const valueUnit = valueUnitRaw === 'cents' ? 'cents' : 'reais'
+      const sourceFieldRaw = String(formData.get('sourceField') ?? '').trim()
+      nextConfig = {
+        ...existingConfig,
+        stageMap: mapping,
+        valueUnit,
+        ...(sourceFieldRaw ? { sourceField: sourceFieldRaw } : {}),
+      }
+    } else {
+      nextConfig = { ...existingConfig, statusMap: mapping }
+    }
+
+    await db
+      .update(integrations)
+      .set({ config: nextConfig })
+      .where(
+        and(eq(integrations.organizationId, organizationId), eq(integrations.provider, provider)),
+      )
+
+    return { ok: true }
+  } catch {
+    // Nunca expor detalhes internos / credenciais ao client.
+    return { ok: false, error: 'Não foi possível salvar. Tente novamente.' }
   }
-
-  await db
-    .update(integrations)
-    .set({ config: nextConfig })
-    .where(
-      and(eq(integrations.organizationId, organizationId), eq(integrations.provider, provider)),
-    )
-
-  revalidatePath('/integracoes')
 }

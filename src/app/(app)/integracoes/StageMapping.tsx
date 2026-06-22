@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useActionState, useState, useTransition } from 'react'
 import { useFormStatus } from 'react-dom'
 import type { ProviderStage } from '@/ingestion/catalog'
 import type { FunnelStage, StageMapping as StageMap } from '@/ingestion/mapping'
@@ -70,10 +70,31 @@ function SaveMappingButton() {
   )
 }
 
+// Agrupa os estágios por `group` (nome do pipeline), preservando a ordem de
+// aparição dos grupos. Estágios sem `group` ficam num grupo "Outros".
+function groupStages(stages: ProviderStage[]): { group: string; stages: ProviderStage[] }[] {
+  const order: string[] = []
+  const byGroup = new Map<string, ProviderStage[]>()
+  for (const stage of stages) {
+    const group = stage.group ?? 'Outros'
+    if (!byGroup.has(group)) {
+      byGroup.set(group, [])
+      order.push(group)
+    }
+    byGroup.get(group)!.push(stage)
+  }
+  return order.map((group) => ({ group, stages: byGroup.get(group)! }))
+}
+
 export default function StageMapping({ provider }: { provider: 'leavo' | 'datacrazy' }) {
   const [pending, startTransition] = useTransition()
   const [loaded, setLoaded] = useState<{ stages: ProviderStage[]; current: StageMap } | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [saveState, formAction] = useActionState(
+    (prev: Awaited<ReturnType<typeof saveMappingAction>> | null, fd: FormData) =>
+      saveMappingAction(provider, prev, fd),
+    null,
+  )
 
   function handleLoad() {
     setError(null)
@@ -132,7 +153,7 @@ export default function StageMapping({ provider }: { provider: 'leavo' | 'datacr
 
       {loaded && (
         <form
-          action={saveMappingAction.bind(null, provider)}
+          action={formAction}
           style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
         >
           <div
@@ -153,39 +174,49 @@ export default function StageMapping({ provider }: { provider: 'leavo' | 'datacr
             </p>
           )}
 
-          {loaded.stages.map((stage) => {
-            const fieldId = `stage_${stage.id}`
-            const currentValue = loaded.current[stage.id] ?? 'ignore'
-            return (
+          {groupStages(loaded.stages).map(({ group, stages }) => (
+            <div key={group} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div
-                key={stage.id}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}
+                style={{
+                  fontSize: 11,
+                  letterSpacing: '.06em',
+                  textTransform: 'uppercase',
+                  fontWeight: 600,
+                  color: 'hsl(var(--muted-foreground))',
+                }}
               >
-                <div style={{ flex: 1, minWidth: 140 }}>
-                  <div style={{ fontSize: 13, fontWeight: 500, color: 'hsl(var(--foreground))' }}>
-                    {stage.name}
-                  </div>
-                  {stage.group && (
-                    <div style={{ fontSize: 11.5, color: 'hsl(var(--muted-foreground))', marginTop: 1 }}>
-                      {stage.group}
-                    </div>
-                  )}
-                </div>
-                <select
-                  name={fieldId}
-                  defaultValue={currentValue}
-                  style={{ ...inputStyle, width: 'auto', minWidth: 150 }}
-                >
-                  <option value="ignore">— não usar —</option>
-                  {FUNNEL_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
+                {group}
               </div>
-            )
-          })}
+              {stages.map((stage) => {
+                const fieldId = `stage_${stage.id}`
+                const currentValue = loaded.current[stage.id] ?? 'ignore'
+                return (
+                  <div
+                    key={stage.id}
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}
+                  >
+                    <div style={{ flex: 1, minWidth: 140 }}>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: 'hsl(var(--foreground))' }}>
+                        {stage.name}
+                      </div>
+                    </div>
+                    <select
+                      name={fieldId}
+                      defaultValue={currentValue}
+                      style={{ ...inputStyle, width: 'auto', minWidth: 150 }}
+                    >
+                      <option value="ignore">— não usar —</option>
+                      {FUNNEL_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )
+              })}
+            </div>
+          ))}
 
           {provider === 'datacrazy' && (
             <div
@@ -220,6 +251,17 @@ export default function StageMapping({ provider }: { provider: 'leavo' | 'datacr
                 />
               </div>
             </div>
+          )}
+
+          {saveState?.ok && (
+            <p style={{ fontSize: 12.5, margin: 0, color: 'hsl(142 64% 40%)', fontWeight: 500 }}>
+              ✓ Mapeamento salvo
+            </p>
+          )}
+          {saveState && !saveState.ok && saveState.error && (
+            <p style={{ fontSize: 12.5, margin: 0, color: 'hsl(var(--destructive, 0 84% 60%))' }}>
+              {saveState.error}
+            </p>
           )}
 
           <div style={{ display: 'flex', gap: 9, marginTop: 3 }}>
