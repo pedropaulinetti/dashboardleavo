@@ -17,10 +17,15 @@ const FIXED_UPDATED = new Date('2025-01-02T10:00:00.000Z')
 const FIXED_OCCURRED = new Date('2025-01-01T11:00:00.000Z')
 const FIXED_NOW = new Date('2026-06-18T00:00:00.000Z')
 
-// fake leavo: 1 lead + 1 stage event + cursor 'cur1' (datas fixas)
+// Captura o último ctx.config recebido pelo fake leavo (para asserção de repasse).
+let lastLeavoConfig: unknown
+
+// fake leavo: 1 lead + 1 stage event + cursor 'cur1' (datas fixas).
+// Lê ctx.config e o registra para verificarmos que o sync repassou o config.
 const fakeLeavo: SourceAdapter = {
   provider: 'leavo',
-  async pull() {
+  async pull(ctx) {
+    lastLeavoConfig = ctx.config
     return {
       leads: [
         {
@@ -72,6 +77,13 @@ describe('syncOrg', () => {
 
     // Org A: 2 integrações pull conectadas + 1 webhook (push) conectado.
     await connectIntegration(db, orgA, 'leavo', { apiToken: 'tok_leavo' })
+    // Grava um config (mapeamento) na linha do leavo p/ checar repasse ao pull.
+    await db
+      .update(schema.integrations)
+      .set({ config: { mappedFunnel: true } })
+      .where(
+        and(eq(schema.integrations.organizationId, orgA), eq(schema.integrations.provider, 'leavo')),
+      )
     await connectIntegration(db, orgA, 'datacrazy', { apiKey: 'tok_dc' })
     await connectIntegration(db, orgA, 'webhook', {})
     // meta_ads conectado porém será desconectado para checar que disconnected não roda.
@@ -117,6 +129,12 @@ describe('syncOrg', () => {
     // resultado coerente para leavo.
     const leavoRes = results.find((r) => r.provider === 'leavo')
     expect(leavoRes).toEqual({ provider: 'leavo', ok: true })
+  })
+
+  it('repassa o config da integração ao pull do adapter', async () => {
+    lastLeavoConfig = undefined
+    await syncOrg(db, orgA, adapters, FIXED_NOW)
+    expect(lastLeavoConfig).toEqual({ mappedFunnel: true })
   })
 
   it('captura erro de um provider sem bloquear os demais (datacrazy lança boom)', async () => {

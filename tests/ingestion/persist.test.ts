@@ -27,6 +27,7 @@ function makePull(): PullResult {
         currentStage: 'mql',
         valueCents: 10000,
         lostReason: null,
+        identityKey: 'a@x.com',
         createdAt: d('2026-06-01T10:00:00Z'),
         updatedAt: d('2026-06-01T10:00:00Z'),
       },
@@ -118,10 +119,25 @@ describe('persist', () => {
     expect(c).toEqual({ leads: 3, events: 3, metrics: 2 })
   })
 
+  it('grava identityKey do lead', async () => {
+    const [row] = await db
+      .select({ identityKey: schema.leads.identityKey })
+      .from(schema.leads)
+      .where(sql`${schema.leads.organizationId} = ${orgA} and ${schema.leads.externalId} = 'L1'`)
+    expect(row.identityKey).toBe('a@x.com')
+  })
+
   it('é idempotente: persist com os mesmos dados não duplica', async () => {
     await persist(db, orgA, provider, makePull())
     const c = await counts(orgA)
     expect(c).toEqual({ leads: 3, events: 3, metrics: 2 })
+
+    // identityKey continua íntegro após reprocessar (idempotência).
+    const [row] = await db
+      .select({ identityKey: schema.leads.identityKey })
+      .from(schema.leads)
+      .where(sql`${schema.leads.organizationId} = ${orgA} and ${schema.leads.externalId} = 'L1'`)
+    expect(row.identityKey).toBe('a@x.com')
   })
 
   it('atualiza campo mutável de lead em vez de duplicar', async () => {

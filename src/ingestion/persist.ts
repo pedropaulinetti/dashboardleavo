@@ -32,6 +32,7 @@ export async function persist(
           currentStage: l.currentStage,
           valueCents: l.valueCents ?? 0,
           lostReason: l.lostReason ?? null,
+          identityKey: l.identityKey ?? null,
           createdAt: l.createdAt,
           updatedAt: l.updatedAt,
         })),
@@ -45,6 +46,7 @@ export async function persist(
           currentStage: sql`excluded.current_stage`,
           valueCents: sql`excluded.value_cents`,
           lostReason: sql`excluded.lost_reason`,
+          identityKey: sql`excluded.identity_key`,
           updatedAt: sql`excluded.updated_at`,
         },
       })

@@ -1,3 +1,4 @@
+import { datacrazyAdapter } from './adapters/datacrazy'
 import type { SourceAdapter } from './types'
 
 // Adaptadores STUB (Plano 3). Retornam vazio e preservam o cursor recebido.
@@ -14,7 +15,7 @@ function stubAdapter(provider: string): SourceAdapter {
 // Mapa de adaptadores de PULL. Webhook é push -> não tem adapter aqui.
 const REGISTRY: Record<string, SourceAdapter> = {
   leavo: stubAdapter('leavo'),
-  datacrazy: stubAdapter('datacrazy'),
+  datacrazy: datacrazyAdapter,
   meta_ads: stubAdapter('meta_ads'),
 }
 

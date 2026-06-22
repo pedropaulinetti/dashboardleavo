@@ -40,7 +40,7 @@ export async function syncOrg(
       if (!adapter) throw new Error(`AdapterNotFound: '${provider}'`)
 
       const credentials = getDecryptedCredentials(row) ?? {}
-      const result = await adapter.pull({ credentials, cursor: row.cursor })
+      const result = await adapter.pull({ credentials, cursor: row.cursor, config: row.config })
 
       await persist(database, organizationId, provider, result)
 
