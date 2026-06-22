@@ -10,10 +10,10 @@ import { auth } from '@/auth/config'
 import { db } from '@/db'
 import { getDashboardData } from '@/dashboard/queries'
 
-type Period = '7d' | '30d' | '90d' | '12m' | 'custom'
+type Period = 'all' | '7d' | '30d' | '90d' | '12m' | 'custom'
 type Channel = 'all' | 'meta' | 'google' | 'whats' | 'indica'
 
-const PERIODS: Period[] = ['7d', '30d', '90d', '12m', 'custom']
+const PERIODS: Period[] = ['all', '7d', '30d', '90d', '12m', 'custom']
 const CHANNELS: Channel[] = ['all', 'meta', 'google', 'whats', 'indica']
 
 function one(value: string | string[] | undefined): string | undefined {
@@ -28,7 +28,7 @@ export default async function DashboardPage({
   const sp = await searchParams
 
   const rawPeriod = one(sp.period)
-  const period: Period = PERIODS.includes(rawPeriod as Period) ? (rawPeriod as Period) : '30d'
+  const period: Period = PERIODS.includes(rawPeriod as Period) ? (rawPeriod as Period) : 'all'
 
   const rawChannel = one(sp.channel)
   const channel: Channel = CHANNELS.includes(rawChannel as Channel)

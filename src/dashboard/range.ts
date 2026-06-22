@@ -1,4 +1,4 @@
-export type Period = '7d' | '30d' | '90d' | '12m' | 'custom'
+export type Period = 'all' | '7d' | '30d' | '90d' | '12m' | 'custom'
 
 export interface RangeInput {
   period?: string
@@ -61,6 +61,21 @@ function addDays(date: Date, days: number): Date {
  */
 export function resolveRange(input: RangeInput, today: Date): ResolvedRange {
   const period = input.period
+
+  // `all`: todo o histórico. `from` bem no passado (ano 2000) e `to` no fim do
+  // dia de hoje. O período anterior é uma janela de tamanho ~zero ANTES de
+  // `from`, de modo que as contagens do período anterior deem 0 e os deltas
+  // (delta(cur, prev) com prev===0 → null) fiquem "—".
+  if (period === 'all') {
+    const allFrom = new Date(Date.UTC(2000, 0, 1))
+    const prevPoint = new Date(allFrom.getTime() - 1)
+    return {
+      from: allFrom,
+      to: utcEndOfDay(utcMidnight(today)),
+      prevFrom: prevPoint,
+      prevTo: prevPoint,
+    }
+  }
 
   // `from` e `toStart` são sempre o INÍCIO do dia (meia-noite UTC). O limite
   // superior efetivo (`to`) usa o FIM do dia para incluir o dia atual completo.

@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 
-type Period = '7d' | '30d' | '90d' | '12m' | 'custom'
+type Period = 'all' | '7d' | '30d' | '90d' | '12m' | 'custom'
 
 const calendarIcon = (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -25,6 +25,7 @@ const checkIcon = (
 )
 
 const presets: { value: Exclude<Period, 'custom'>; label: string }[] = [
+  { value: 'all', label: 'Todos os períodos' },
   { value: '7d', label: 'Últimos 7 dias' },
   { value: '30d', label: 'Últimos 30 dias' },
   { value: '90d', label: 'Últimos 90 dias' },
@@ -42,11 +43,11 @@ function periodLabel(period: Period, from?: string, to?: string): string {
   if (period === 'custom') {
     return `${formatBr(from)} – ${formatBr(to)}`
   }
-  return presets.find((p) => p.value === period)?.label ?? 'Últimos 30 dias'
+  return presets.find((p) => p.value === period)?.label ?? 'Todos os períodos'
 }
 
 export default function PeriodFilter({
-  period = '30d',
+  period = 'all',
   from,
   to,
 }: {

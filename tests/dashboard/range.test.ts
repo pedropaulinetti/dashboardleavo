@@ -23,6 +23,20 @@ describe('resolveRange', () => {
     expect(r.from.toISOString().slice(0, 10)).toBe('2026-05-17')
   })
 
+  it("period 'all' pega todo o histórico e período anterior vazio", () => {
+    const today = d('2026-06-15')
+    const r = resolveRange({ period: 'all' }, today)
+    // `from` é uma data bem antiga (ano 2000)
+    expect(r.from.getUTCFullYear()).toBe(2000)
+    expect(r.from.getTime()).toBe(Date.UTC(2000, 0, 1))
+    // `to` no mesmo dia de `today`
+    expect(r.to.toISOString().slice(0, 10)).toBe('2026-06-15')
+    // período anterior é vazio (janela ~zero), antes de `from`
+    expect(r.prevFrom.getTime()).toBeLessThanOrEqual(r.from.getTime())
+    expect(r.prevTo.getTime()).toBeLessThanOrEqual(r.from.getTime())
+    expect(r.prevTo.getTime() - r.prevFrom.getTime()).toBeLessThanOrEqual(1)
+  })
+
   it('to é o fim do dia de hoje (inclui leads criados hoje)', () => {
     const today = new Date('2026-06-19T14:30:00.000Z')
     const r = resolveRange({ period: '30d' }, today)
