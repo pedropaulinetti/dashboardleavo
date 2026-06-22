@@ -1,6 +1,7 @@
 import type { IntegrationView } from '@/ingestion/integrations'
 import { connectAction, disconnectAction } from './actions'
 import ConnectForm from './ConnectForm'
+import StageMapping from './StageMapping'
 import WebhookUrl from './WebhookUrl'
 
 const keyIcon = (
@@ -176,6 +177,10 @@ export default function IntegrationCard({
           </span>
           <DisconnectButton provider={item.id} />
         </div>
+      )}
+
+      {connected && (item.id === 'leavo' || item.id === 'datacrazy') && (
+        <StageMapping provider={item.id} />
       )}
 
       {!connected && isWebhook && (
