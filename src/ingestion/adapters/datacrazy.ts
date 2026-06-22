@@ -95,9 +95,13 @@ function resolveFunnelStage(
   config: DataCrazyConfig | undefined,
 ): FunnelStage | null {
   const mapped = config ? mapStage(config.stageMap, business.stageId) : null
+  // Estágio não mapeado / "não usar" → pular SEMPRE (mesmo ganho/perdido). Assim só
+  // contam os negócios dos pipelines que o usuário realmente mapeou no funil.
+  if (mapped == null) return null
+  // Ganho marca venda mesmo que o estágio atual seja anterior (ex.: marcado como ganho
+  // ainda em "Negociação"). Perdido mantém o estágio mapeado (e ganha lostReason no pull).
   if (business.status === 'won') return 'vendas'
-  if (business.status === 'lost') return mapped ?? 'negociacoes'
-  return mapped // null → pular
+  return mapped
 }
 
 // Emite um evento para CADA etapa de 'leads' até a etapa final (inclusive),
