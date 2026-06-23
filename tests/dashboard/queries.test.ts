@@ -24,6 +24,7 @@ let roasOrg: string
 let utmRegOrg: string
 let identityOrg: string
 let creativeOrg: string
+let cycleOrg: string
 
 // Ranges determinísticos
 const cur = { from: new Date('2026-06-01T00:00:00Z'), to: new Date('2026-06-30T23:59:59Z') }
@@ -93,6 +94,7 @@ beforeAll(async () => {
   const [o6] = await db.insert(schema.organizations).values({ name: 'UtmReg', slug: 'utmreg' }).returning()
   const [o7] = await db.insert(schema.organizations).values({ name: 'Identity', slug: 'identity' }).returning()
   const [o8] = await db.insert(schema.organizations).values({ name: 'Creative', slug: 'creative' }).returning()
+  const [o9] = await db.insert(schema.organizations).values({ name: 'Cycle', slug: 'cycle' }).returning()
   org = o.id
   otherOrg = o2.id
   costOrg = o3.id
@@ -101,6 +103,7 @@ beforeAll(async () => {
   utmRegOrg = o6.id
   identityOrg = o7.id
   creativeOrg = o8.id
+  cycleOrg = o9.id
 
   const jun = d('2026-06-10T12:00:00Z')
   const may = d('2026-05-10T12:00:00Z')
@@ -229,6 +232,27 @@ beforeAll(async () => {
   // sem creative -> ignorados
   await seedLead({ ext: 'CR-f', channel: 'meta', createdAt: jun, value: 99999, organizationId: creativeOrg, stages: full(jun) }) // creative null
   await seedLead({ ext: 'CR-g', channel: 'meta', createdAt: jun, value: 99999, organizationId: creativeOrg, creative: '', stages: full(jun) }) // creative ''
+
+  // --- cycleOrg: ciclo de vendas (mediana em dias), ticket médio, CAC e no-show.
+  // Etapas pré-vendas no createdAt; evento 'vendas' numa data posterior -> duração em dias.
+  const stagesUntilNeg = (at: Date) => ALL.slice(0, 5).map((stage) => ({ stage, at })) // leads..negociacoes
+  const fullVenda = (base: Date, venda: Date) => [...stagesUntilNeg(base), { stage: 'vendas', at: venda }]
+
+  // Atual (junho): 3 vendas com durações 4, 10, 6 dias -> mediana 6; 1 no-show (até agendadas).
+  await seedLead({ ext: 'CY1', channel: 'meta', createdAt: d('2026-06-01T00:00:00Z'), value: 60000, organizationId: cycleOrg, stages: fullVenda(d('2026-06-01T00:00:00Z'), d('2026-06-05T00:00:00Z')) })
+  await seedLead({ ext: 'CY2', channel: 'meta', createdAt: d('2026-06-01T00:00:00Z'), value: 40000, organizationId: cycleOrg, stages: fullVenda(d('2026-06-01T00:00:00Z'), d('2026-06-11T00:00:00Z')) })
+  await seedLead({ ext: 'CY3', channel: 'meta', createdAt: d('2026-06-10T00:00:00Z'), value: 20000, organizationId: cycleOrg, stages: fullVenda(d('2026-06-10T00:00:00Z'), d('2026-06-16T00:00:00Z')) })
+  await seedLead({ ext: 'CY4', channel: 'meta', createdAt: d('2026-06-05T00:00:00Z'), organizationId: cycleOrg, stages: upTo(3, d('2026-06-05T00:00:00Z')) }) // até agendadas -> no-show
+
+  // Anterior (maio): 2 vendas com durações 2 e 4 dias -> mediana 3; 1 no-show.
+  await seedLead({ ext: 'CYM1', channel: 'meta', createdAt: d('2026-05-01T00:00:00Z'), value: 30000, organizationId: cycleOrg, stages: fullVenda(d('2026-05-01T00:00:00Z'), d('2026-05-03T00:00:00Z')) })
+  await seedLead({ ext: 'CYM2', channel: 'meta', createdAt: d('2026-05-01T00:00:00Z'), value: 50000, organizationId: cycleOrg, stages: fullVenda(d('2026-05-01T00:00:00Z'), d('2026-05-05T00:00:00Z')) })
+  await seedLead({ ext: 'CYM3', channel: 'meta', createdAt: d('2026-05-10T00:00:00Z'), organizationId: cycleOrg, stages: upTo(3, d('2026-05-10T00:00:00Z')) }) // no-show
+
+  await db.insert(schema.adMetrics).values([
+    { organizationId: cycleOrg, provider: 'meta_ads', date: d('2026-06-05'), campaign: 'cy', creative: 'cy', channel: 'meta', spendCents: 90000 },
+    { organizationId: cycleOrg, provider: 'meta_ads', date: d('2026-05-10'), campaign: 'cy', creative: 'cy', channel: 'meta', spendCents: 80000 },
+  ])
 })
 
 describe('getFunnelCounts', () => {
@@ -296,6 +320,55 @@ describe('getHighlights', () => {
     expect(h.roas).toBeNull()
     // anterior: roas 40000/20000 = 2 (não-null) -> mas delta deve ser null
     expect(h.deltas.roas).toBeNull()
+  })
+
+  it('calcula ticket médio, CAC e no-show (org principal)', async () => {
+    const h = await getHighlights(db, org, { ...cur, channel: 'all' }, { ...prev, channel: 'all' })
+    // receita 150000 / vendas 2 = 75000
+    expect(h.ticketMedioCents).toBe(75000)
+    // invest 60000 / vendas 2 = 30000
+    expect(h.cacCents).toBe(30000)
+    // funil [5,4,3,2,2,2]: (agendadas 3 - realizadas 2)/3 = 1/3
+    expect(h.noShowRate).toBeCloseTo(1 / 3, 10)
+  })
+
+  it('ticket/CAC null sem vendas e no-show null sem agendadas', async () => {
+    // emptyPrev (abril) não tem dados na org -> tudo null
+    const h = await getHighlights(db, org, { ...emptyPrev, channel: 'all' }, { ...emptyPrev, channel: 'all' })
+    expect(h.ticketMedioCents).toBeNull()
+    expect(h.cacCents).toBeNull()
+    expect(h.noShowRate).toBeNull()
+    expect(h.cicloVendasDias).toBeNull()
+  })
+})
+
+describe('getHighlights — ciclo de vendas (mediana) e deltas das novas métricas', () => {
+  it('mediana de durações lead->venda, com delta vs anterior', async () => {
+    const h = await getHighlights(db, cycleOrg, { ...cur, channel: 'all' }, { ...prev, channel: 'all' })
+    // atual: durações 4,10,6 -> mediana 6; anterior: 2,4 -> mediana 3
+    expect(h.cicloVendasDias).toBe(6)
+    expect(h.deltas.cicloVendas).toBeCloseTo((6 - 3) / 3, 10)
+  })
+
+  it('ticket médio, CAC e no-show com deltas reais', async () => {
+    const h = await getHighlights(db, cycleOrg, { ...cur, channel: 'all' }, { ...prev, channel: 'all' })
+    // atual: receita 120000/3 = 40000; anterior 80000/2 = 40000 -> delta 0
+    expect(h.ticketMedioCents).toBe(40000)
+    expect(h.deltas.ticketMedio).toBeCloseTo(0, 10)
+    // CAC atual 90000/3 = 30000; anterior 80000/2 = 40000 -> delta -0.25
+    expect(h.cacCents).toBe(30000)
+    expect(h.deltas.cac).toBeCloseTo((30000 - 40000) / 40000, 10)
+    // no-show atual (agendadas 4 - realizadas 3)/4 = 0.25; anterior (3-2)/3 = 1/3
+    expect(h.noShowRate).toBeCloseTo(0.25, 10)
+    expect(h.deltas.noShow).toBeCloseTo((0.25 - 1 / 3) / (1 / 3), 10)
+  })
+
+  it('deltas das novas métricas null quando período anterior vazio', async () => {
+    const h = await getHighlights(db, cycleOrg, { ...cur, channel: 'all' }, { ...emptyPrev, channel: 'all' })
+    expect(h.deltas.ticketMedio).toBeNull()
+    expect(h.deltas.cac).toBeNull()
+    expect(h.deltas.noShow).toBeNull()
+    expect(h.deltas.cicloVendas).toBeNull()
   })
 })
 

@@ -7,3 +7,11 @@ export function safeDiv(num: number, den: number): number | null {
 export function delta(cur: number, prev: number): number | null {
   return prev === 0 ? null : (cur - prev) / prev
 }
+
+// Mediana de uma lista; null se vazia. Par -> média dos dois centrais. Não muta a entrada.
+export function median(xs: number[]): number | null {
+  if (xs.length === 0) return null
+  const sorted = [...xs].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid]
+}

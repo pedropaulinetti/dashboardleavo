@@ -1,5 +1,5 @@
 import type { Highlights } from '@/dashboard/queries'
-import { fmtBRL0fromCents, fmtInt } from '@/dashboard/format'
+import { fmtBRL0fromCents, fmtInt, pct } from '@/dashboard/format'
 
 const GREEN = 'hsl(142 64% 40%)'
 const RED = 'hsl(0 72% 51%)'
@@ -82,16 +82,64 @@ function GlyphTrendingUp() {
   )
 }
 
+function GlyphTag() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z" />
+      <circle cx="7.5" cy="7.5" r=".5" fill="currentColor" />
+    </svg>
+  )
+}
+
+function GlyphTarget() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <circle cx="12" cy="12" r="10" />
+      <circle cx="12" cy="12" r="6" />
+      <circle cx="12" cy="12" r="2" />
+    </svg>
+  )
+}
+
+function GlyphClock() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 6v6l4 2" />
+    </svg>
+  )
+}
+
+function GlyphUserX() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="m17 8 5 5" />
+      <path d="m22 8-5 5" />
+    </svg>
+  )
+}
+
 // Formata a fração de delta como "+12,4%"; null -> "—" (sem seta).
 function fmtDelta(d: number | null): string {
   if (d === null) return '—'
   return `${d >= 0 ? '+' : ''}${(d * 100).toFixed(1).replace('.', ',')}%`
 }
 
-// "Maior é melhor": >= 0 verde, < 0 vermelho. null -> muted (sem seta).
-function deltaColor(d: number | null): string {
+// Cor do delta. Padrão "maior é melhor": >= 0 verde, < 0 vermelho. Quando
+// `lowerIsBetter`, inverte (queda é boa -> verde). null -> muted (sem seta).
+function deltaColor(d: number | null, lowerIsBetter = false): string {
   if (d === null) return MUTED
-  return d >= 0 ? GREEN : RED
+  const good = lowerIsBetter ? d <= 0 : d >= 0
+  return good ? GREEN : RED
+}
+
+// Ciclo de vendas em dias (arredondado), com singular/plural. null -> "—".
+function fmtDias(n: number | null): string {
+  if (n === null) return '—'
+  const r = Math.round(n)
+  return `${r} ${r === 1 ? 'dia' : 'dias'}`
 }
 
 export default function HighlightCards({ data }: { data: Highlights }) {
@@ -127,6 +175,41 @@ export default function HighlightCards({ data }: { data: Highlights }) {
       icon: <GlyphTrendingUp />,
       iconBg: 'hsl(var(--muted))',
       iconFg: MUTED,
+    },
+    {
+      label: 'Ticket médio',
+      value: data.ticketMedioCents == null ? '—' : fmtBRL0fromCents(data.ticketMedioCents),
+      delta: data.deltas.ticketMedio,
+      icon: <GlyphTag />,
+      iconBg: 'hsl(142 64% 40% / .12)',
+      iconFg: GREEN,
+    },
+    {
+      label: 'CAC',
+      value: data.cacCents == null ? '—' : fmtBRL0fromCents(data.cacCents),
+      delta: data.deltas.cac,
+      lowerIsBetter: true,
+      icon: <GlyphTarget />,
+      iconBg: 'hsl(var(--muted))',
+      iconFg: MUTED,
+    },
+    {
+      label: 'Ciclo de vendas',
+      value: fmtDias(data.cicloVendasDias),
+      delta: data.deltas.cicloVendas,
+      lowerIsBetter: true,
+      icon: <GlyphClock />,
+      iconBg: 'hsl(var(--muted))',
+      iconFg: MUTED,
+    },
+    {
+      label: 'Taxa de no-show',
+      value: data.noShowRate == null ? '—' : pct(data.noShowRate),
+      delta: data.deltas.noShow,
+      lowerIsBetter: true,
+      icon: <GlyphUserX />,
+      iconBg: 'hsl(0 72% 51% / .12)',
+      iconFg: RED,
     },
   ]
 
@@ -170,7 +253,7 @@ export default function HighlightCards({ data }: { data: Highlights }) {
               gap: 5,
               marginTop: 6,
               fontSize: 12.5,
-              color: deltaColor(c.delta),
+              color: deltaColor(c.delta, c.lowerIsBetter ?? false),
             }}
           >
             {c.delta !== null && (

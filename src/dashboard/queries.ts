@@ -4,7 +4,7 @@ import { adMetrics, FUNNEL_STAGES, leads, leadStageEvents } from '@/db/schema'
 import { buildDonutArcs, type DonutArc } from './donut'
 import { buildFunnelPaths, type FunnelPath } from './funnel-svg'
 import { LOSS_REASONS } from './loss-reasons'
-import { delta, safeDiv } from './math'
+import { delta, median, safeDiv } from './math'
 import { resolveRange } from './range'
 
 // `database` aceita o driver de produção (postgres-js) ou o de teste (PGlite).
@@ -87,6 +87,45 @@ async function sumReceitaCents(
   return Number(row?.total ?? 0)
 }
 
+// Dias (lead.createdAt -> primeiro evento 'vendas') de cada lead que fechou na coorte.
+// Base do ciclo de vendas; a mediana é calculada em JS (robusta a outliers, sem depender
+// de percentile_cont entre Postgres/PGlite). Escopo: org, coorte por createdAt e canal.
+const MS_PER_DAY = 86_400_000
+
+async function salesCycleDaysList(
+  database: AnyDb,
+  organizationId: string,
+  f: Filters,
+): Promise<number[]> {
+  // Uma linha por evento 'vendas'; createdAt e occurredAt passam pelo MESMO mapeamento
+  // de timestamp do drizzle (evita o skew de fuso ao parsear um min() cru como string).
+  // O primeiro evento 'vendas' (min) é resolvido em JS, por lead.
+  const rows = await database
+    .select({
+      leadId: leads.id,
+      createdAt: leads.createdAt,
+      vendaAt: leadStageEvents.occurredAt,
+    })
+    .from(leads)
+    .innerJoin(
+      leadStageEvents,
+      and(eq(leadStageEvents.leadId, leads.id), eq(leadStageEvents.stage, 'vendas')),
+    )
+    .where(leadCohortWhere(organizationId, f))
+
+  const firstVendaByLead = new Map<string, { createdAt: Date; vendaAt: Date }>()
+  for (const r of rows) {
+    const prev = firstVendaByLead.get(r.leadId)
+    if (!prev || r.vendaAt < prev.vendaAt) {
+      firstVendaByLead.set(r.leadId, { createdAt: r.createdAt, vendaAt: r.vendaAt })
+    }
+  }
+
+  return [...firstVendaByLead.values()].map(
+    (v) => (v.vendaAt.getTime() - v.createdAt.getTime()) / MS_PER_DAY,
+  )
+}
+
 // Predicado de ad_metrics: org, range por ad_metrics.date, opcionalmente por canal.
 function adMetricsWhere(organizationId: string, f: Filters) {
   const conds = [
@@ -128,11 +167,36 @@ export interface Highlights {
   vendas: number
   investCents: number
   roas: number | null
+  ticketMedioCents: number | null
+  cacCents: number | null
+  noShowRate: number | null
+  cicloVendasDias: number | null
   deltas: {
     receita: number | null
     vendas: number | null
     invest: number | null
     roas: number | null
+    ticketMedio: number | null
+    cac: number | null
+    noShow: number | null
+    cicloVendas: number | null
+  }
+}
+
+// Métricas derivadas de um período: ticket médio, CAC, taxa de no-show e ciclo de vendas
+// (mediana em dias). Puras — a partir de receita, invest, funil e durações já computados.
+function deriveExtraMetrics(
+  receitaCents: number,
+  investCents: number,
+  counts: number[],
+  cycleDays: number[],
+) {
+  return {
+    ticketMedio: safeDiv(receitaCents, counts[5]),
+    cac: safeDiv(investCents, counts[5]),
+    // no-show: agendadas que não se realizaram, sobre as agendadas
+    noShow: safeDiv(counts[2] - counts[3], counts[2]),
+    ciclo: median(cycleDays),
   }
 }
 
@@ -145,9 +209,11 @@ function assembleHighlights(
   receitaCents: number,
   adAggCur: AdAggregates,
   funnelCur: number[],
+  cycleDaysCur: number[],
   prevReceita: number,
   adAggPrev: AdAggregates,
   funnelPrev: number[],
+  cycleDaysPrev: number[],
 ): Highlights {
   const investCents = adAggCur.investCents
   const prevInvest = adAggPrev.investCents
@@ -156,16 +222,27 @@ function assembleHighlights(
   const roas = safeDiv(receitaCents, investCents)
   const prevRoas = safeDiv(prevReceita, prevInvest)
 
+  const xCur = deriveExtraMetrics(receitaCents, investCents, funnelCur, cycleDaysCur)
+  const xPrev = deriveExtraMetrics(prevReceita, prevInvest, funnelPrev, cycleDaysPrev)
+
   return {
     receitaCents,
     vendas,
     investCents,
     roas,
+    ticketMedioCents: xCur.ticketMedio,
+    cacCents: xCur.cac,
+    noShowRate: xCur.noShow,
+    cicloVendasDias: xCur.ciclo,
     deltas: {
       receita: delta(receitaCents, prevReceita),
       vendas: delta(vendas, prevVendas),
       invest: delta(investCents, prevInvest),
       roas: deltaOrNull(roas, prevRoas),
+      ticketMedio: deltaOrNull(xCur.ticketMedio, xPrev.ticketMedio),
+      cac: deltaOrNull(xCur.cac, xPrev.cac),
+      noShow: deltaOrNull(xCur.noShow, xPrev.noShow),
+      cicloVendas: deltaOrNull(xCur.ciclo, xPrev.ciclo),
     },
   }
 }
@@ -180,18 +257,29 @@ export async function getHighlights(
   currentFilters: Filters,
   prevFilters: Filters,
 ): Promise<Highlights> {
-  const [receitaCents, adAggCur, curCounts] = await Promise.all([
+  const [receitaCents, adAggCur, curCounts, cycleCur] = await Promise.all([
     sumReceitaCents(database, organizationId, currentFilters),
     sumAdAggregates(database, organizationId, currentFilters),
     getFunnelCounts(database, organizationId, currentFilters),
+    salesCycleDaysList(database, organizationId, currentFilters),
   ])
-  const [prevReceita, adAggPrev, prevCounts] = await Promise.all([
+  const [prevReceita, adAggPrev, prevCounts, cyclePrev] = await Promise.all([
     sumReceitaCents(database, organizationId, prevFilters),
     sumAdAggregates(database, organizationId, prevFilters),
     getFunnelCounts(database, organizationId, prevFilters),
+    salesCycleDaysList(database, organizationId, prevFilters),
   ])
 
-  return assembleHighlights(receitaCents, adAggCur, curCounts, prevReceita, adAggPrev, prevCounts)
+  return assembleHighlights(
+    receitaCents,
+    adAggCur,
+    curCounts,
+    cycleCur,
+    prevReceita,
+    adAggPrev,
+    prevCounts,
+    cyclePrev,
+  )
 }
 
 // Delta entre dois valores possivelmente null: se qualquer lado é null, retorna null.
@@ -636,6 +724,8 @@ export async function getDashboardData(
     adAggPrev,
     receitaCur,
     receitaPrev,
+    cycleCur,
+    cyclePrev,
     utm,
     creatives,
     loss,
@@ -646,6 +736,8 @@ export async function getDashboardData(
     sumAdAggregates(database, organizationId, prev),
     sumReceitaCents(database, organizationId, cur),
     sumReceitaCents(database, organizationId, prev),
+    salesCycleDaysList(database, organizationId, cur),
+    salesCycleDaysList(database, organizationId, prev),
     getUtmRanking(database, organizationId, cur),
     getCreatives(database, organizationId, cur),
     getLossReasons(database, organizationId, cur),
@@ -656,9 +748,11 @@ export async function getDashboardData(
     receitaCur,
     adAggCur,
     funnelCur,
+    cycleCur,
     receitaPrev,
     adAggPrev,
     funnelPrev,
+    cyclePrev,
   )
   const costCards = assembleCostCards(
     costsFromAgg(adAggCur, funnelCur),
