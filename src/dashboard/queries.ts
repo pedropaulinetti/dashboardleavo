@@ -98,25 +98,16 @@ function adMetricsWhere(organizationId: string, f: Filters) {
   return and(...conds)
 }
 
-// Soma de spendCents de ad_metrics no range/canal (por ad_metrics.date e ad_metrics.channel).
-async function sumInvestCents(
-  database: AnyDb,
-  organizationId: string,
-  f: Filters,
-): Promise<number> {
-  const [row] = await database
-    .select({ total: sum(adMetrics.spendCents) })
-    .from(adMetrics)
-    .where(adMetricsWhere(organizationId, f))
-  return Number(row?.total ?? 0)
-}
-
 // Somas agregadas de ad_metrics (invest/impressions/clicks) no range/canal.
+// Cobre tanto o "invest" dos highlights quanto impressions/clicks dos cost cards,
+// numa só varredura de ad_metrics.
+type AdAggregates = { investCents: number; impressions: number; clicks: number }
+
 async function sumAdAggregates(
   database: AnyDb,
   organizationId: string,
   f: Filters,
-): Promise<{ investCents: number; impressions: number; clicks: number }> {
+): Promise<AdAggregates> {
   const [row] = await database
     .select({
       invest: sum(adMetrics.spendCents),
@@ -146,28 +137,22 @@ export interface Highlights {
 }
 
 /**
- * Cards de destaque para o período atual, com deltas relativos vs o período anterior.
- * Recebe os dois conjuntos de filtros (atual e anterior), já com datas resolvidas.
+ * Monta os highlights a partir de primitivos já computados (receita, agregados de ad
+ * e contagens de funil, atual e anterior). Pura — não acessa o banco. Permite que o
+ * orquestrador reaproveite os primitivos sem refazer as queries.
  */
-export async function getHighlights(
-  database: AnyDb,
-  organizationId: string,
-  currentFilters: Filters,
-  prevFilters: Filters,
-): Promise<Highlights> {
-  const [receitaCents, investCents, curCounts] = await Promise.all([
-    sumReceitaCents(database, organizationId, currentFilters),
-    sumInvestCents(database, organizationId, currentFilters),
-    getFunnelCounts(database, organizationId, currentFilters),
-  ])
-  const [prevReceita, prevInvest, prevCounts] = await Promise.all([
-    sumReceitaCents(database, organizationId, prevFilters),
-    sumInvestCents(database, organizationId, prevFilters),
-    getFunnelCounts(database, organizationId, prevFilters),
-  ])
-
-  const vendas = curCounts[5]
-  const prevVendas = prevCounts[5]
+function assembleHighlights(
+  receitaCents: number,
+  adAggCur: AdAggregates,
+  funnelCur: number[],
+  prevReceita: number,
+  adAggPrev: AdAggregates,
+  funnelPrev: number[],
+): Highlights {
+  const investCents = adAggCur.investCents
+  const prevInvest = adAggPrev.investCents
+  const vendas = funnelCur[5]
+  const prevVendas = funnelPrev[5]
   const roas = safeDiv(receitaCents, investCents)
   const prevRoas = safeDiv(prevReceita, prevInvest)
 
@@ -183,6 +168,30 @@ export async function getHighlights(
       roas: deltaOrNull(roas, prevRoas),
     },
   }
+}
+
+/**
+ * Cards de destaque para o período atual, com deltas relativos vs o período anterior.
+ * Recebe os dois conjuntos de filtros (atual e anterior), já com datas resolvidas.
+ */
+export async function getHighlights(
+  database: AnyDb,
+  organizationId: string,
+  currentFilters: Filters,
+  prevFilters: Filters,
+): Promise<Highlights> {
+  const [receitaCents, adAggCur, curCounts] = await Promise.all([
+    sumReceitaCents(database, organizationId, currentFilters),
+    sumAdAggregates(database, organizationId, currentFilters),
+    getFunnelCounts(database, organizationId, currentFilters),
+  ])
+  const [prevReceita, adAggPrev, prevCounts] = await Promise.all([
+    sumReceitaCents(database, organizationId, prevFilters),
+    sumAdAggregates(database, organizationId, prevFilters),
+    getFunnelCounts(database, organizationId, prevFilters),
+  ])
+
+  return assembleHighlights(receitaCents, adAggCur, curCounts, prevReceita, adAggPrev, prevCounts)
 }
 
 // Delta entre dois valores possivelmente null: se qualquer lado é null, retorna null.
@@ -204,25 +213,46 @@ export interface CostCards {
   }
 }
 
-// Calcula os custos do período (CPL/CPMQL/CPM/CPC) a partir das somas de ad_metrics
-// e das contagens de funil (leads, mql).
+type Costs = { cpl: number | null; cpmql: number | null; cpm: number | null; cpc: number | null }
+
+// Custos (CPL/CPMQL/CPM/CPC) a partir de primitivos já computados: agregados de
+// ad_metrics e contagens de funil (leads, mql). Puro — não acessa o banco.
+function costsFromAgg(agg: AdAggregates, counts: number[]): Costs {
+  return {
+    cpl: safeDiv(agg.investCents, counts[0]),
+    cpmql: safeDiv(agg.investCents, counts[1]),
+    cpm: safeDiv(agg.investCents * 1000, agg.impressions),
+    cpc: safeDiv(agg.investCents, agg.clicks),
+  }
+}
+
+// Monta os cost cards a partir dos custos atual/anterior já calculados. Puro.
+function assembleCostCards(cur: Costs, prv: Costs): CostCards {
+  return {
+    cplCents: cur.cpl,
+    cpmqlCents: cur.cpmql,
+    cpmCents: cur.cpm,
+    cpcCents: cur.cpc,
+    deltas: {
+      cpl: deltaOrNull(cur.cpl, prv.cpl),
+      cpmql: deltaOrNull(cur.cpmql, prv.cpmql),
+      cpm: deltaOrNull(cur.cpm, prv.cpm),
+      cpc: deltaOrNull(cur.cpc, prv.cpc),
+    },
+  }
+}
+
+// Calcula os custos do período buscando os primitivos no banco.
 async function costsFor(
   database: AnyDb,
   organizationId: string,
   f: Filters,
-): Promise<{ cpl: number | null; cpmql: number | null; cpm: number | null; cpc: number | null }> {
+): Promise<Costs> {
   const [agg, counts] = await Promise.all([
     sumAdAggregates(database, organizationId, f),
     getFunnelCounts(database, organizationId, f),
   ])
-  const leadsN = counts[0]
-  const mqlN = counts[1]
-  return {
-    cpl: safeDiv(agg.investCents, leadsN),
-    cpmql: safeDiv(agg.investCents, mqlN),
-    cpm: safeDiv(agg.investCents * 1000, agg.impressions),
-    cpc: safeDiv(agg.investCents, agg.clicks),
-  }
+  return costsFromAgg(agg, counts)
 }
 
 /**
@@ -239,18 +269,7 @@ export async function getCostCards(
     costsFor(database, organizationId, current),
     costsFor(database, organizationId, prev),
   ])
-  return {
-    cplCents: cur.cpl,
-    cpmqlCents: cur.cpmql,
-    cpmCents: cur.cpm,
-    cpcCents: cur.cpc,
-    deltas: {
-      cpl: deltaOrNull(cur.cpl, prv.cpl),
-      cpmql: deltaOrNull(cur.cpmql, prv.cpmql),
-      cpm: deltaOrNull(cur.cpm, prv.cpm),
-      cpc: deltaOrNull(cur.cpc, prv.cpc),
-    },
-  }
+  return assembleCostCards(cur, prv)
 }
 
 export interface UtmRankItem {
@@ -282,31 +301,32 @@ export async function getUtmRanking(
       and ${leadStageEvents.stage} = 'vendas'
   )`
 
-  const rows = await database
-    .select({
-      source: leads.utmSource,
-      campaign: leads.utmCampaign,
-      leads: count(),
-      vendas: sql<number>`count(*) filter (where ${reachedVendas})`,
-    })
-    .from(leads)
-    .where(leadCohortWhere(organizationId, filters))
-    .groupBy(leads.utmSource, leads.utmCampaign)
-    .orderBy(
-      desc(sql`count(*) filter (where ${reachedVendas})`),
-      desc(count()),
-    )
-    .limit(5)
-
-  // Spend por campanha no range/canal (uma query separada, juntado em memória).
-  const spendRows = await database
-    .select({
-      campaign: adMetrics.campaign,
-      spend: sum(adMetrics.spendCents),
-    })
-    .from(adMetrics)
-    .where(adMetricsWhere(organizationId, filters))
-    .groupBy(adMetrics.campaign)
+  // Ranking de leads e spend por campanha são independentes — rodam em paralelo.
+  const [rows, spendRows] = await Promise.all([
+    database
+      .select({
+        source: leads.utmSource,
+        campaign: leads.utmCampaign,
+        leads: count(),
+        vendas: sql<number>`count(*) filter (where ${reachedVendas})`,
+      })
+      .from(leads)
+      .where(leadCohortWhere(organizationId, filters))
+      .groupBy(leads.utmSource, leads.utmCampaign)
+      .orderBy(
+        desc(sql`count(*) filter (where ${reachedVendas})`),
+        desc(count()),
+      )
+      .limit(5),
+    database
+      .select({
+        campaign: adMetrics.campaign,
+        spend: sum(adMetrics.spendCents),
+      })
+      .from(adMetrics)
+      .where(adMetricsWhere(organizationId, filters))
+      .groupBy(adMetrics.campaign),
+  ])
   const spendByCampaign = new Map(
     spendRows.map((r) => [r.campaign, Number(r.spend ?? 0)]),
   )
@@ -423,6 +443,141 @@ export async function getLossReasons(
   }
 }
 
+export type Granularity = 'day' | 'month' | 'year'
+
+export interface TimeSeriesPoint {
+  period: string // ISO date do início do bucket, ex.: '2026-06-01'
+  leads: number // leads que atingiram 'leads' nesse bucket
+  agendadas: number // atingiram 'agendadas'
+  realizadas: number // atingiram 'realizadas'
+  vendas: number // atingiram 'vendas' (negócios fechados)
+  spendCents: number // investimento em mídia no bucket
+}
+
+// Stages expostos na série temporal (subconjunto de FUNNEL_STAGES).
+const TS_STAGES = ['leads', 'agendadas', 'realizadas', 'vendas'] as const
+type TsStage = (typeof TS_STAGES)[number]
+
+// Limite de segurança para a geração de buckets em JS (evita travar com ranges absurdos).
+const MAX_BUCKETS = 1000
+
+// Avança um Date (em UTC) por um bucket da granularidade dada.
+function advanceBucket(d: Date, g: Granularity): Date {
+  const x = new Date(d)
+  if (g === 'day') x.setUTCDate(x.getUTCDate() + 1)
+  else if (g === 'month') x.setUTCMonth(x.getUTCMonth() + 1)
+  else x.setUTCFullYear(x.getUTCFullYear() + 1)
+  return x
+}
+
+// Trunca um Date (em UTC) para o início do bucket da granularidade dada.
+function truncBucket(d: Date, g: Granularity): Date {
+  const y = d.getUTCFullYear()
+  const m = d.getUTCMonth()
+  const day = d.getUTCDate()
+  if (g === 'year') return new Date(Date.UTC(y, 0, 1))
+  if (g === 'month') return new Date(Date.UTC(y, m, 1))
+  return new Date(Date.UTC(y, m, day))
+}
+
+// Chave 'YYYY-MM-DD' (UTC) do início de um bucket — usada como period e p/ juntar com o SQL.
+function bucketKey(d: Date): string {
+  return d.toISOString().slice(0, 10)
+}
+
+/**
+ * Série temporal para o gráfico de evolução: por dia/mês/ano, com as métricas
+ * de etapa (leads/agendadas/realizadas/vendas — clientes distintos que atingiram
+ * cada etapa no bucket) e o investimento em mídia (spendCents) somado por bucket.
+ * Gera TODOS os buckets do range (preenchendo com 0) em ordem cronológica. Escopo: org.
+ */
+export async function getTimeSeries(
+  database: AnyDb,
+  organizationId: string,
+  opts: { from: Date; to: Date; channel: string; granularity: Granularity },
+): Promise<TimeSeriesPoint[]> {
+  const { from, to, channel, granularity } = opts
+
+  // date_trunc no Postgres/PGlite: 'day'|'month'|'year'. O resultado é o início
+  // do bucket (timestamp); normalizamos p/ chave 'YYYY-MM-DD' (UTC) em JS.
+  // A granularidade é inserida como literal (não como parâmetro): além de ser um
+  // enum fechado (sem risco de injeção), placeholders distintos no SELECT e no
+  // GROUP BY impediriam o Postgres de reconhecer a expressão agrupada.
+  const granLit = sql.raw(`'${granularity}'`)
+  const stageBucket = sql<string>`date_trunc(${granLit}, ${leadStageEvents.occurredAt})`
+  const adBucket = sql<string>`date_trunc(${granLit}, ${adMetrics.date})`
+
+  // --- Métricas de etapa (clientes distintos por bucket+stage) ---
+  const stageConds = [
+    eq(leadStageEvents.organizationId, organizationId),
+    inArray(leadStageEvents.stage, TS_STAGES as unknown as string[]),
+    gte(leadStageEvents.occurredAt, from),
+    lte(leadStageEvents.occurredAt, to),
+  ]
+  if (channel !== 'all') stageConds.push(eq(leads.channel, channel))
+
+  const stageRows = await database
+    .select({
+      bucket: stageBucket,
+      stage: leadStageEvents.stage,
+      n: countDistinct(sql`coalesce(${leads.identityKey}, ${leads.id}::text)`),
+    })
+    .from(leadStageEvents)
+    .innerJoin(leads, eq(leadStageEvents.leadId, leads.id))
+    .where(and(...stageConds))
+    .groupBy(stageBucket, leadStageEvents.stage)
+
+  // --- Investimento (spend somado por bucket) ---
+  const adConds = [
+    eq(adMetrics.organizationId, organizationId),
+    gte(adMetrics.date, from),
+    lte(adMetrics.date, to),
+  ]
+  if (channel !== 'all') adConds.push(eq(adMetrics.channel, channel))
+
+  const adRows = await database
+    .select({ bucket: adBucket, spend: sum(adMetrics.spendCents) })
+    .from(adMetrics)
+    .where(and(...adConds))
+    .groupBy(adBucket)
+
+  // Normaliza o timestamp do date_trunc para a chave 'YYYY-MM-DD' (UTC).
+  const keyOf = (raw: string): string => bucketKey(new Date(raw))
+
+  const stageByKey = new Map<string, Map<TsStage, number>>()
+  for (const r of stageRows) {
+    const k = keyOf(r.bucket)
+    let m = stageByKey.get(k)
+    if (!m) {
+      m = new Map()
+      stageByKey.set(k, m)
+    }
+    m.set(r.stage as TsStage, Number(r.n ?? 0))
+  }
+
+  const spendByKey = new Map<string, number>()
+  for (const r of adRows) spendByKey.set(keyOf(r.bucket), Number(r.spend ?? 0))
+
+  // --- Montar a série: todos os buckets de [trunc(from), to], em ordem ---
+  const out: TimeSeriesPoint[] = []
+  let cursor = truncBucket(from, granularity)
+  while (cursor.getTime() <= to.getTime() && out.length < MAX_BUCKETS) {
+    const key = bucketKey(cursor)
+    const stages = stageByKey.get(key)
+    out.push({
+      period: key,
+      leads: stages?.get('leads') ?? 0,
+      agendadas: stages?.get('agendadas') ?? 0,
+      realizadas: stages?.get('realizadas') ?? 0,
+      vendas: stages?.get('vendas') ?? 0,
+      spendCents: spendByKey.get(key) ?? 0,
+    })
+    cursor = advanceBucket(cursor, granularity)
+  }
+
+  return out
+}
+
 export interface DashboardInput {
   period?: string
   channel: string
@@ -455,14 +610,45 @@ export async function getDashboardData(
   const cur: Filters = { from, to, channel: input.channel }
   const prev: Filters = { from: prevFrom, to: prevTo, channel: input.channel }
 
-  const [funnel, highlights, costCards, utm, creatives, loss] = await Promise.all([
-    getFunnel(database, organizationId, cur),
-    getHighlights(database, organizationId, cur, prev),
-    getCostCards(database, organizationId, cur, prev),
+  // Primitivos compartilhados, computados UMA vez. Antes, funnelCounts e os agregados
+  // de ad_metrics eram refeitos por getFunnel/getHighlights/getCostCards (3x cur e 2x
+  // prev para o funil — a query mais cara, com join+countDistinct). Aqui rodam só uma
+  // vez cada e são reusados pelos assembladores puros.
+  const [
+    funnelCur,
+    funnelPrev,
+    adAggCur,
+    adAggPrev,
+    receitaCur,
+    receitaPrev,
+    utm,
+    creatives,
+    loss,
+  ] = await Promise.all([
+    getFunnelCounts(database, organizationId, cur),
+    getFunnelCounts(database, organizationId, prev),
+    sumAdAggregates(database, organizationId, cur),
+    sumAdAggregates(database, organizationId, prev),
+    sumReceitaCents(database, organizationId, cur),
+    sumReceitaCents(database, organizationId, prev),
     getUtmRanking(database, organizationId, cur),
     getCreatives(database, organizationId, cur),
     getLossReasons(database, organizationId, cur),
   ])
+
+  const funnel = { counts: funnelCur, convGeral: safeDiv(funnelCur[5], funnelCur[0]) }
+  const highlights = assembleHighlights(
+    receitaCur,
+    adAggCur,
+    funnelCur,
+    receitaPrev,
+    adAggPrev,
+    funnelPrev,
+  )
+  const costCards = assembleCostCards(
+    costsFromAgg(adAggCur, funnelCur),
+    costsFromAgg(adAggPrev, funnelPrev),
+  )
 
   const funnelPaths = buildFunnelPaths(funnel.counts)
   const donutArcs = buildDonutArcs(loss.rows.map((r) => r.count))
