@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import {
   CartesianGrid,
   Line,
@@ -13,12 +12,6 @@ import {
 } from 'recharts'
 import type { Granularity, TimeSeriesPoint } from '@/dashboard/queries'
 import { fmtBRL0fromCents, fmtInt } from '@/dashboard/format'
-
-const GRAN_OPTIONS: { value: Granularity; label: string }[] = [
-  { value: 'day', label: 'Dia' },
-  { value: 'month', label: 'Mês' },
-  { value: 'year', label: 'Ano' },
-]
 
 const SERIES = [
   { key: 'leads', label: 'Leads', color: 'hsl(142 64% 40%)', axis: 'left' },
@@ -73,27 +66,12 @@ export default function TrendChart({
   data: TimeSeriesPoint[]
   granularity: Granularity
 }) {
-  const router = useRouter()
-  const pathname = usePathname()
-  const searchParams = useSearchParams()
-
   const [visible, setVisible] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(SERIES.map((s) => [s.key, true])),
   )
 
   function toggleSeries(key: string) {
     setVisible((prev) => ({ ...prev, [key]: !prev[key] }))
-  }
-
-  function selectGran(value: Granularity) {
-    const params = new URLSearchParams(searchParams.toString())
-    if (value === 'month') {
-      params.delete('gran')
-    } else {
-      params.set('gran', value)
-    }
-    const qs = params.toString()
-    router.push(qs ? `${pathname}?${qs}` : pathname)
   }
 
   return (
@@ -120,47 +98,9 @@ export default function TrendChart({
             Evolução no tempo
           </h3>
           <p style={{ fontSize: 13, margin: '3px 0 0', color: 'hsl(var(--muted-foreground))' }}>
-            Etapas do funil e investimento em mídia ao longo do período.
+            Etapas do funil e investimento em mídia, agrupados automaticamente pelo período
+            selecionado.
           </p>
-        </div>
-
-        <div
-          role="group"
-          aria-label="Granularidade"
-          style={{
-            display: 'inline-flex',
-            border: '1px solid hsl(var(--border))',
-            borderRadius: 10,
-            padding: 3,
-            gap: 3,
-            background: 'hsl(var(--muted) / .4)',
-          }}
-        >
-          {GRAN_OPTIONS.map((o) => {
-            const active = granularity === o.value
-            return (
-              <button
-                key={o.value}
-                type="button"
-                onClick={() => selectGran(o.value)}
-                aria-pressed={active}
-                style={{
-                  fontFamily: 'inherit',
-                  fontSize: 13,
-                  fontWeight: 500,
-                  cursor: 'pointer',
-                  border: 'none',
-                  borderRadius: 7,
-                  padding: '6px 14px',
-                  background: active ? 'hsl(var(--card))' : 'transparent',
-                  color: active ? 'hsl(var(--foreground))' : 'hsl(var(--muted-foreground))',
-                  boxShadow: active ? '0 1px 2px hsl(0 0% 0% / .12)' : 'none',
-                }}
-              >
-                {o.label}
-              </button>
-            )
-          })}
         </div>
       </div>
 

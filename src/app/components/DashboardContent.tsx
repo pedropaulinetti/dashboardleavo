@@ -8,30 +8,30 @@ import Creatives from './Creatives'
 import { auth } from '@/auth/config'
 import { db } from '@/db'
 import { getDashboardData, getTimeSeries } from '@/dashboard/queries'
-import { resolveRange } from '@/dashboard/range'
+import { resolveRange, granularityForRange } from '@/dashboard/range'
 
 type Period = 'all' | 'month' | '7d' | '30d' | '90d' | '12m' | 'custom'
 type Channel = 'all' | 'meta' | 'google' | 'whats' | 'indica'
-type Granularity = 'day' | 'month' | 'year'
 
 export default async function DashboardContent({
   period,
   channel,
   from,
   to,
-  granularity,
 }: {
   period: Period
   channel: Channel
   from?: string
   to?: string
-  granularity: Granularity
 }) {
   const session = await auth()
   const orgId = session!.user.organizationId!
 
   const now = new Date()
   const range = resolveRange({ period, from, to }, now)
+
+  // Granularidade derivada automaticamente do range já resolvido (sem seletor).
+  const granularity = granularityForRange(range.from, range.to)
 
   // getDashboardData e getTimeSeries são independentes — rodam em paralelo
   // (antes eram sequenciais, somando as duas latências).

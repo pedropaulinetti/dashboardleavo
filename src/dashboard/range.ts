@@ -1,5 +1,19 @@
 export type Period = 'all' | 'month' | '7d' | '30d' | '90d' | '12m' | 'custom'
 
+/** Granularidade do gráfico de evolução; mesmo tipo de `queries.ts`. */
+type Granularity = 'day' | 'month' | 'year'
+
+/**
+ * Deriva a granularidade do gráfico de evolução a partir do tamanho do range,
+ * evitando um seletor manual: até ~3 meses → dia, até ~2 anos → mês, acima → ano.
+ */
+export function granularityForRange(from: Date, to: Date): Granularity {
+  const days = Math.round((to.getTime() - from.getTime()) / 86400000)
+  if (days <= 92) return 'day' // até ~3 meses → por dia
+  if (days <= 750) return 'month' // até ~2 anos → por mês
+  return 'year' // acima → por ano
+}
+
 export interface RangeInput {
   period?: string
   from?: string
