@@ -34,6 +34,29 @@ const lossReasons = [
   { id: 'lr1', name: 'Sem interesse', requiredJustification: false, createdAt: '2026-01-01T00:00:00.000Z' },
 ]
 
+// Campos personalizados (additional-fields) por lead. Casados por name (case-insensitive).
+// - lead-won: UTM_SOURCE/CAMPAIGN/CONTENT preenchidos → utmSource/utmCampaign/creative.
+// - lead-neg: UTM_CONTENT é template não preenchido ({{ad.name}}) → creative undefined;
+//   sem UTM_SOURCE → utmSource cai no fallback de lead.source (homepage).
+// - lead-lost: sem entrada no map → utmSource cai no fallback (source null → undefined).
+const additionalFieldsLeads = [
+  {
+    id: 'lead-won',
+    additionalFields: [
+      { additionalField: { name: 'UTM_SOURCE' }, value: 'meta' },
+      { additionalField: { name: 'UTM_CAMPAIGN' }, value: 'cp19' },
+      { additionalField: { name: 'UTM_CONTENT' }, value: 'AD06' },
+    ],
+  },
+  {
+    id: 'lead-neg',
+    additionalFields: [
+      { additionalField: { name: 'UTM_CAMPAIGN' }, value: '' },
+      { additionalField: { name: 'UTM_CONTENT' }, value: '{{ad.name}}' },
+    ],
+  },
+]
+
 // Negócios em 2 pipelines:
 //  - Funil de Vendas (pf): won, in_process(negociacao), lost(PERDIDOS não mapeado), in_process(ignore -> pulado)
 //  - Outbound (po): lost e won — pipeline sem nenhum estágio mapeado → fora de escopo → pulados
@@ -247,6 +270,14 @@ function makeFetch(): FetchLike {
         headers: { 'Content-Type': 'application/json' },
       })
     }
+    if (u.pathname.endsWith('/leads/additional-fields')) {
+      const afSkip = Number(u.searchParams.get('skip') ?? '0')
+      const afPage = afSkip === 0 ? additionalFieldsLeads : []
+      return new Response(JSON.stringify({ data: afPage }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
     const skip = Number(u.searchParams.get('skip') ?? '0')
     const page = skip === 0 ? businesses : []
     return new Response(JSON.stringify({ count: businesses.length, data: page }), {
@@ -392,7 +423,7 @@ describe('datacrazyAdapter', () => {
     expect(stagesOf(r.stageEvents, 'biz-ignore')).toEqual([])
   })
 
-  it('utmSource = source e channel derivado da tag META (won)', async () => {
+  it('UTMs dos campos personalizados preenchem utmSource/utmCampaign/creative (won)', async () => {
     const r = await datacrazyAdapter.pull({
       credentials: { apiKey: 'k' },
       cursor: null,
@@ -400,10 +431,43 @@ describe('datacrazyAdapter', () => {
       fetchImpl: makeFetch(),
     })
     const won = leadById(r.leads, 'biz-won')
-    expect(won.utmSource).toBe('leavo_lp_videodemo')
-    expect(won.utmCampaign).toBeUndefined()
+    // UTM_SOURCE do campo personalizado tem prioridade sobre lead.source
+    expect(won.utmSource).toBe('meta')
+    expect(won.utmCampaign).toBe('cp19')
+    expect(won.creative).toBe('AD06')
+    // channel continua derivado da tag META (não muda)
     expect(won.channel).toBe('meta')
     expect(r.adMetrics).toEqual([])
+  })
+
+  it('UTM_CONTENT com template {{...}} → creative undefined; sem UTM_SOURCE → fallback lead.source', async () => {
+    const r = await datacrazyAdapter.pull({
+      credentials: { apiKey: 'k' },
+      cursor: null,
+      config,
+      fetchImpl: makeFetch(),
+    })
+    const neg = leadById(r.leads, 'biz-neg')
+    // UTM_CONTENT = '{{ad.name}}' (template não preenchido) → creative ausente
+    expect(neg.creative ?? undefined).toBeUndefined()
+    // UTM_CAMPAIGN vazio → ausente
+    expect(neg.utmCampaign).toBeUndefined()
+    // sem UTM_SOURCE no campo → fallback para lead.source
+    expect(neg.utmSource).toBe('homepage')
+  })
+
+  it('lead sem entrada no map de UTMs → utmSource cai no fallback lead.source', async () => {
+    const r = await datacrazyAdapter.pull({
+      credentials: { apiKey: 'k' },
+      cursor: null,
+      config,
+      fetchImpl: makeFetch(),
+    })
+    // biz-lost (lead-lost) não tem entrada em additional-fields; source é null → undefined
+    const lost = leadById(r.leads, 'biz-lost')
+    expect(lost.utmSource).toBeUndefined()
+    expect(lost.utmCampaign).toBeUndefined()
+    expect(lost.creative ?? undefined).toBeUndefined()
   })
 
   it('tag indicação sem source → channel indica e utmSource undefined (também em lost)', async () => {

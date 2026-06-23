@@ -65,6 +65,24 @@ type BusinessesResponse = { count: number; data: Business[] }
 type LossReason = { id: string; name: string }
 type LossReasonsResponse = { count: number; data: LossReason[] }
 
+// Campos personalizados (additional-fields): cada lead tem id + lista de campos,
+// cada um com { additionalField: { name }, value }. Buscamos UTM_SOURCE/CAMPAIGN/CONTENT.
+type AdditionalField = {
+  additionalField?: { name?: string | null } | null
+  value?: string | null
+  valueNumber?: number | null
+}
+type AdditionalFieldsLead = {
+  id?: string
+  additionalFields?: AdditionalField[] | null
+}
+type AdditionalFieldsResponse = { data: AdditionalFieldsLead[] }
+
+type LeadUtms = { utmSource?: string; utmCampaign?: string; creative?: string }
+
+const UTM_PAGE_SIZE = 200
+const UTM_MAX_PAGES = 50
+
 // O ctx do pull, estendido localmente para carregar o config salvo e um fetch injetável.
 type DataCrazyPullCtx = {
   credentials: Record<string, unknown>
@@ -140,6 +158,58 @@ async function fetchLossReasonNames(
   }
 }
 
+// Limpa o valor textual de um campo de UTM: trim; vazio OU que contenha '{{'
+// (template de UTM não preenchido, ex.: "{{ad.name}}") → undefined (ausente).
+function cleanUtmValue(value: string | null | undefined): string | undefined {
+  const v = (value ?? '').trim()
+  if (!v || v.includes('{{')) return undefined
+  return v
+}
+
+// Busca (paginando) os campos personalizados de todos os leads e indexa por lead.id
+// um { utmSource, utmCampaign, creative } montado de UTM_SOURCE/UTM_CAMPAIGN/UTM_CONTENT
+// (casados por name, case-insensitive). Se a chamada falhar, devolve Map vazio (não
+// quebra o sync por causa disso).
+async function fetchLeadUtms(
+  apiKey: string,
+  fetchImpl: FetchLike | undefined,
+): Promise<Map<string, LeadUtms>> {
+  const out = new Map<string, LeadUtms>()
+  try {
+    let skip = 0
+    for (let page = 0; page < UTM_MAX_PAGES; page++) {
+      const url = new URL(`${BASE_URL}/leads/additional-fields`)
+      url.searchParams.set('skip', String(skip))
+      url.searchParams.set('take', String(UTM_PAGE_SIZE))
+      const { data } = await fetchJson<AdditionalFieldsResponse>(url.toString(), {
+        token: apiKey,
+        fetchImpl,
+      })
+      if (!data || data.length === 0) break
+
+      for (const lead of data) {
+        if (!lead?.id) continue
+        const utms: LeadUtms = {}
+        for (const field of lead.additionalFields ?? []) {
+          const name = (field?.additionalField?.name ?? '').toUpperCase()
+          const value = cleanUtmValue(field?.value)
+          if (value === undefined) continue
+          if (name === 'UTM_SOURCE') utms.utmSource = value
+          else if (name === 'UTM_CAMPAIGN') utms.utmCampaign = value
+          else if (name === 'UTM_CONTENT') utms.creative = value
+        }
+        out.set(lead.id, utms)
+      }
+
+      skip += data.length
+      if (data.length < UTM_PAGE_SIZE) break
+    }
+    return out
+  } catch {
+    return new Map()
+  }
+}
+
 function lostReasonFor(
   business: Business,
   config: DataCrazyConfig | undefined,
@@ -195,6 +265,9 @@ export const datacrazyAdapter: SourceAdapter = {
 
     // Busca UMA vez os motivos de perda (id → name) para traduzir o lossReasonId.
     const lossReasonNames = await fetchLossReasonNames(apiKey, fetchImpl)
+
+    // Busca UMA vez os UTMs (campos personalizados) indexados por lead.id.
+    const utmMap = await fetchLeadUtms(apiKey, fetchImpl)
 
     // Pagina /businesses até acumular >= count ou uma página vazia.
     const all: Business[] = []
@@ -256,11 +329,17 @@ export const datacrazyAdapter: SourceAdapter = {
         currentStage = mapped
       }
 
+      // UTMs dos campos personalizados (casados por lead.id). UTM_SOURCE do campo tem
+      // prioridade; se ausente, mantém o fallback de lead.source. utmCampaign/creative
+      // vêm dos campos (ou undefined). channel continua derivado das tags.
+      const utm = business.leadId ? utmMap.get(business.leadId) : undefined
+
       leads.push({
         externalId: business.id,
         channel: deriveChannel(business.lead?.tags, business.lead?.source),
-        utmSource: deriveUtmSource(business.lead),
-        utmCampaign: undefined,
+        utmSource: utm?.utmSource ?? deriveUtmSource(business.lead),
+        utmCampaign: utm?.utmCampaign,
+        creative: utm?.creative,
         currentStage,
         valueCents: toCents(business.total, config?.valueUnit),
         lostReason,
