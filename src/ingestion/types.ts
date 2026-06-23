@@ -9,6 +9,7 @@ export type PullContext = {
   cursor: string | null
   config?: unknown
   fetchImpl?: (url: string, init?: RequestInit) => Promise<Response>
+  now?: Date // injetável p/ testes determinísticos (ex.: janela de datas do Meta)
 }
 export interface SourceAdapter {
   provider: string
