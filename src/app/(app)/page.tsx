@@ -6,9 +6,11 @@ import DashboardSkeleton from '../components/DashboardSkeleton'
 
 type Period = 'all' | 'month' | '7d' | '30d' | '90d' | '12m' | 'custom'
 type Channel = 'all' | 'meta' | 'google' | 'whats' | 'indica'
+type Granularity = 'day' | 'month' | 'year'
 
 const PERIODS: Period[] = ['all', 'month', '7d', '30d', '90d', '12m', 'custom']
 const CHANNELS: Channel[] = ['all', 'meta', 'google', 'whats', 'indica']
+const GRANULARITIES: Granularity[] = ['day', 'month', 'year']
 
 function one(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value
@@ -31,6 +33,11 @@ export default async function DashboardPage({
 
   const from = one(sp.from)
   const to = one(sp.to)
+
+  const rawGran = one(sp.gran)
+  const granularity: Granularity = GRANULARITIES.includes(rawGran as Granularity)
+    ? (rawGran as Granularity)
+    : 'month'
 
   return (
     <div
@@ -58,10 +65,16 @@ export default async function DashboardPage({
       </div>
 
       <Suspense
-        key={`${period}|${channel}|${from ?? ''}|${to ?? ''}`}
+        key={`${period}|${channel}|${from ?? ''}|${to ?? ''}|${granularity}`}
         fallback={<DashboardSkeleton />}
       >
-        <DashboardContent period={period} channel={channel} from={from} to={to} />
+        <DashboardContent
+          period={period}
+          channel={channel}
+          from={from}
+          to={to}
+          granularity={granularity}
+        />
       </Suspense>
     </div>
   )
