@@ -62,6 +62,9 @@ type Business = {
 
 type BusinessesResponse = { count: number; data: Business[] }
 
+type LossReason = { id: string; name: string }
+type LossReasonsResponse = { count: number; data: LossReason[] }
+
 // O ctx do pull, estendido localmente para carregar o config salvo e um fetch injetável.
 type DataCrazyPullCtx = {
   credentials: Record<string, unknown>
@@ -116,9 +119,35 @@ function toCents(total: number | null | undefined, unit: DataCrazyConfig['valueU
   return unit === 'cents' ? Math.round(value) : Math.round(value * 100)
 }
 
-function lostReasonFor(business: Business, config: DataCrazyConfig | undefined): string | null {
+// Busca UMA vez os motivos de perda e monta um mapa id → name. Se a chamada falhar,
+// devolve mapa vazio (não quebra o sync por causa disso).
+async function fetchLossReasonNames(
+  apiKey: string,
+  fetchImpl: FetchLike | undefined,
+): Promise<Record<string, string>> {
+  try {
+    const { data } = await fetchJson<LossReasonsResponse>(`${BASE_URL}/business-loss-reasons`, {
+      token: apiKey,
+      fetchImpl,
+    })
+    const map: Record<string, string> = {}
+    for (const r of data ?? []) {
+      if (r?.id && r?.name) map[r.id] = r.name
+    }
+    return map
+  } catch {
+    return {}
+  }
+}
+
+function lostReasonFor(
+  business: Business,
+  config: DataCrazyConfig | undefined,
+  lossReasonNames: Record<string, string>,
+): string | null {
   const id = business.lossReasonId
   if (id && config?.lossReasonMap?.[id]) return config.lossReasonMap[id]
+  if (id && lossReasonNames[id]) return lossReasonNames[id]
   return id ?? 'Perdido'
 }
 
@@ -163,6 +192,9 @@ export const datacrazyAdapter: SourceAdapter = {
     if (typeof apiKey !== 'string' || !apiKey) {
       throw new Error('datacrazy: credencial "apiKey" ausente ou inválida')
     }
+
+    // Busca UMA vez os motivos de perda (id → name) para traduzir o lossReasonId.
+    const lossReasonNames = await fetchLossReasonNames(apiKey, fetchImpl)
 
     // Pagina /businesses até acumular >= count ou uma página vazia.
     const all: Business[] = []
@@ -211,7 +243,7 @@ export const datacrazyAdapter: SourceAdapter = {
         // no funil de etapas). Fora de escopo → pula.
         if (!inScope) continue
         currentStage = 'negociacoes' // apenas rótulo; não afeta o funil (sem events)
-        lostReason = lostReasonFor(business, config)
+        lostReason = lostReasonFor(business, config, lossReasonNames)
         emitEvents = false
       } else if (business.status === 'won') {
         // Ganho em pipeline do funil = venda (não depende de o estágio "Fechado" estar

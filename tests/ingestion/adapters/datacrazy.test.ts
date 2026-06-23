@@ -28,6 +28,12 @@ const config: DataCrazyConfig = {
   lossReasonMap: { 'reason-1': 'Preço alto' },
 }
 
+// Motivos de perda retornados pelo endpoint /business-loss-reasons.
+// 'lr1' -> 'Sem interesse'. 'reason-unknown' NÃO está aqui (testa fallback p/ id).
+const lossReasons = [
+  { id: 'lr1', name: 'Sem interesse', requiredJustification: false, createdAt: '2026-01-01T00:00:00.000Z' },
+]
+
 // Negócios em 2 pipelines:
 //  - Funil de Vendas (pf): won, in_process(negociacao), lost(PERDIDOS não mapeado), in_process(ignore -> pulado)
 //  - Outbound (po): lost e won — pipeline sem nenhum estágio mapeado → fora de escopo → pulados
@@ -133,6 +139,56 @@ const businesses = [
     },
     stage: { id: STAGE_IGNORE, name: 'Pré', index: 0, pipeline: { id: PIPE_FUNIL, name: 'Funil de Vendas' } },
   },
+  // lost no funil com lossReasonId presente no /business-loss-reasons → nome traduzido
+  {
+    id: 'biz-lost-named',
+    createdAt: '2026-01-03T12:00:00.000Z',
+    lastMovedAt: '2026-01-06T16:00:00.000Z',
+    statusChangedAt: '2026-01-06T16:00:00.000Z',
+    stageId: STAGE_PERDIDOS,
+    leadId: 'lead-lost-named',
+    total: 700,
+    discount: 0,
+    status: 'lost',
+    lossReasonId: 'lr1',
+    externalId: null,
+    lead: {
+      id: 'lead-lost-named',
+      name: 'Gabi',
+      email: 'gabi@example.com',
+      phone: null,
+      source: null,
+      tags: [],
+      contacts: [{ platform: 'EMAIL', contactId: 'gabi@example.com' }],
+      createdAt: '2026-01-03T12:00:00.000Z',
+    },
+    stage: { id: STAGE_PERDIDOS, name: 'PERDIDOS', index: 6, pipeline: { id: PIPE_FUNIL, name: 'Funil de Vendas' } },
+  },
+  // lost no funil com lossReasonId NÃO presente no mapa de nomes nem no config → fallback p/ id
+  {
+    id: 'biz-lost-unknown',
+    createdAt: '2026-01-03T13:00:00.000Z',
+    lastMovedAt: '2026-01-06T17:00:00.000Z',
+    statusChangedAt: '2026-01-06T17:00:00.000Z',
+    stageId: STAGE_PERDIDOS,
+    leadId: 'lead-lost-unknown',
+    total: 600,
+    discount: 0,
+    status: 'lost',
+    lossReasonId: 'reason-unknown',
+    externalId: null,
+    lead: {
+      id: 'lead-lost-unknown',
+      name: 'Helo',
+      email: 'helo@example.com',
+      phone: null,
+      source: null,
+      tags: [],
+      contacts: [{ platform: 'EMAIL', contactId: 'helo@example.com' }],
+      createdAt: '2026-01-03T13:00:00.000Z',
+    },
+    stage: { id: STAGE_PERDIDOS, name: 'PERDIDOS', index: 6, pipeline: { id: PIPE_FUNIL, name: 'Funil de Vendas' } },
+  },
   // Outbound — pipeline fora de escopo (nenhum estágio mapeado)
   {
     id: 'biz-out-lost',
@@ -185,6 +241,12 @@ const businesses = [
 function makeFetch(): FetchLike {
   return async (url) => {
     const u = new URL(url)
+    if (u.pathname.endsWith('/business-loss-reasons')) {
+      return new Response(JSON.stringify({ count: lossReasons.length, data: lossReasons }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
     const skip = Number(u.searchParams.get('skip') ?? '0')
     const page = skip === 0 ? businesses : []
     return new Response(JSON.stringify({ count: businesses.length, data: page }), {
@@ -271,6 +333,39 @@ describe('datacrazyAdapter', () => {
     // perda NÃO entra no funil de etapas → nenhum stage event para esse lead
     expect(stagesOf(r.stageEvents, 'biz-lost')).toEqual([])
     expect(r.stageEvents.some((e) => e.leadExternalId === 'biz-lost')).toBe(false)
+  })
+
+  it('lost com lossReasonId no /business-loss-reasons → lostReason é o NOME', async () => {
+    const r = await datacrazyAdapter.pull({
+      credentials: { apiKey: 'k' },
+      cursor: null,
+      config,
+      fetchImpl: makeFetch(),
+    })
+    const lost = leadById(r.leads, 'biz-lost-named')
+    expect(lost.lostReason).toBe('Sem interesse')
+  })
+
+  it('lost com lossReasonId fora do mapa de nomes e do config → fallback para o id', async () => {
+    const r = await datacrazyAdapter.pull({
+      credentials: { apiKey: 'k' },
+      cursor: null,
+      config,
+      fetchImpl: makeFetch(),
+    })
+    const lost = leadById(r.leads, 'biz-lost-unknown')
+    expect(lost.lostReason).toBe('reason-unknown')
+  })
+
+  it('config.lossReasonMap tem prioridade sobre o nome do endpoint', async () => {
+    const r = await datacrazyAdapter.pull({
+      credentials: { apiKey: 'k' },
+      cursor: null,
+      config,
+      fetchImpl: makeFetch(),
+    })
+    // 'reason-1' está no config (Preço alto) e NÃO no endpoint → usa o config
+    expect(leadById(r.leads, 'biz-lost').lostReason).toBe('Preço alto')
   })
 
   it('identityKey derivado de email e dos contacts (WhatsApp)', async () => {
