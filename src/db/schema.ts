@@ -63,6 +63,9 @@ export const leads = pgTable('leads', {
 }, (t) => ({
   uqExternal: unique().on(t.organizationId, t.provider, t.externalId),
   idxIdentity: index('leads_org_identity_idx').on(t.organizationId, t.identityKey),
+  // Coorte do dashboard: filtra leads por org + range de createdAt (e canal). Sem este
+  // índice, períodos como "Este mês"/"30 dias" forçam varredura da org inteira.
+  idxOrgCreated: index('leads_org_created_idx').on(t.organizationId, t.createdAt),
 }))
 
 export const leadStageEvents = pgTable('lead_stage_events', {
@@ -71,7 +74,11 @@ export const leadStageEvents = pgTable('lead_stage_events', {
   leadId: uuid('lead_id').notNull().references(() => leads.id),
   stage: text('stage').notNull(),
   occurredAt: timestamp('occurred_at').notNull(),
-}, (t) => ({ uqEvent: unique().on(t.organizationId, t.leadId, t.stage, t.occurredAt) }))
+}, (t) => ({
+  uqEvent: unique().on(t.organizationId, t.leadId, t.stage, t.occurredAt),
+  // Funil: filtra eventos por org + stage antes do join com leads.
+  idxOrgStage: index('lead_stage_events_org_stage_idx').on(t.organizationId, t.stage),
+}))
 
 export const adMetrics = pgTable('ad_metrics', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -87,7 +94,11 @@ export const adMetrics = pgTable('ad_metrics', {
   leads: integer('leads').notNull().default(0),
   sales: integer('sales').notNull().default(0),
   revenueCents: integer('revenue_cents').notNull().default(0),
-}, (t) => ({ uqMetric: unique().on(t.organizationId, t.provider, t.date, t.campaign, t.creative) }))
+}, (t) => ({
+  uqMetric: unique().on(t.organizationId, t.provider, t.date, t.campaign, t.creative),
+  // Agregações de ad_metrics: filtram por org + range de date (e canal).
+  idxOrgDate: index('ad_metrics_org_date_idx').on(t.organizationId, t.date),
+}))
 
 export const rawEvents = pgTable('raw_events', {
   id: uuid('id').defaultRandom().primaryKey(),
