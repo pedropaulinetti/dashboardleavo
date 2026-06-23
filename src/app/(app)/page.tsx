@@ -22,7 +22,7 @@ export default async function DashboardPage({
   const sp = await searchParams
 
   const rawPeriod = one(sp.period)
-  const period: Period = PERIODS.includes(rawPeriod as Period) ? (rawPeriod as Period) : 'all'
+  const period: Period = PERIODS.includes(rawPeriod as Period) ? (rawPeriod as Period) : 'month'
 
   const rawChannel = one(sp.channel)
   const channel: Channel = CHANNELS.includes(rawChannel as Channel)

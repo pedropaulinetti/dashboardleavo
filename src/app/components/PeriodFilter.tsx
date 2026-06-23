@@ -48,7 +48,7 @@ function periodLabel(period: Period, from?: string, to?: string): string {
 }
 
 export default function PeriodFilter({
-  period = 'all',
+  period = 'month',
   from,
   to,
 }: {
