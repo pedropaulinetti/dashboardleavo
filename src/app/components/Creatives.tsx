@@ -1,5 +1,5 @@
 import type { CreativeItem } from '@/dashboard/queries'
-import { fmtBRL0fromCents } from '@/dashboard/format'
+import { fmtBRL0fromCents, fmtInt } from '@/dashboard/format'
 
 function platLabel(channel: string | null): string {
   if (channel === 'meta') return 'Meta'
@@ -81,7 +81,7 @@ export default function Creatives({ items }: { items: CreativeItem[] }) {
                       {platLabel(c.channel)}
                     </span>
                     <span style={{ fontSize: 11.5, color: 'hsl(var(--muted-foreground))' }}>
-                      {c.vendas} vendas
+                      {fmtInt(c.leadsCount ?? 0)} leads · {c.vendas} vendas
                     </span>
                   </div>
                 </div>
