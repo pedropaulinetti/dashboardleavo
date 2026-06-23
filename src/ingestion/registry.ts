@@ -1,4 +1,5 @@
 import { datacrazyAdapter } from './adapters/datacrazy'
+import { metaAdsAdapter } from './adapters/meta-ads'
 import type { SourceAdapter } from './types'
 
 // Adaptadores STUB (Plano 3). Retornam vazio e preservam o cursor recebido.
@@ -16,7 +17,7 @@ function stubAdapter(provider: string): SourceAdapter {
 const REGISTRY: Record<string, SourceAdapter> = {
   leavo: stubAdapter('leavo'),
   datacrazy: datacrazyAdapter,
-  meta_ads: stubAdapter('meta_ads'),
+  meta_ads: metaAdsAdapter,
 }
 
 export function getAdapter(provider: string): SourceAdapter | undefined {
