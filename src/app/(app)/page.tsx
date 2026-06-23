@@ -10,10 +10,10 @@ import { auth } from '@/auth/config'
 import { db } from '@/db'
 import { getDashboardData } from '@/dashboard/queries'
 
-type Period = 'all' | '7d' | '30d' | '90d' | '12m' | 'custom'
+type Period = 'all' | 'month' | '7d' | '30d' | '90d' | '12m' | 'custom'
 type Channel = 'all' | 'meta' | 'google' | 'whats' | 'indica'
 
-const PERIODS: Period[] = ['all', '7d', '30d', '90d', '12m', 'custom']
+const PERIODS: Period[] = ['all', 'month', '7d', '30d', '90d', '12m', 'custom']
 const CHANNELS: Channel[] = ['all', 'meta', 'google', 'whats', 'indica']
 
 function one(value: string | string[] | undefined): string | undefined {

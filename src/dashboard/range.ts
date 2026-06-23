@@ -1,4 +1,4 @@
-export type Period = 'all' | '7d' | '30d' | '90d' | '12m' | 'custom'
+export type Period = 'all' | 'month' | '7d' | '30d' | '90d' | '12m' | 'custom'
 
 export interface RangeInput {
   period?: string
@@ -74,6 +74,26 @@ export function resolveRange(input: RangeInput, today: Date): ResolvedRange {
       to: utcEndOfDay(utcMidnight(today)),
       prevFrom: prevPoint,
       prevTo: prevPoint,
+    }
+  }
+
+  // `month`: mês corrente de `today`. `from` no primeiro dia do mês (meia-noite
+  // UTC) e `to` no fim do dia de hoje. Período anterior = mês anterior completo:
+  // `prevFrom` no primeiro dia do mês anterior e `prevTo` no fim do último dia do
+  // mês anterior (1ms antes de `from`).
+  if (period === 'month') {
+    const monthFrom = new Date(
+      Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1),
+    )
+    const prevTo = new Date(monthFrom.getTime() - 1)
+    const prevFrom = new Date(
+      Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 1, 1),
+    )
+    return {
+      from: monthFrom,
+      to: utcEndOfDay(utcMidnight(today)),
+      prevFrom,
+      prevTo,
     }
   }
 

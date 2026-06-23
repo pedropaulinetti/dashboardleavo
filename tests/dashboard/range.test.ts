@@ -37,6 +37,17 @@ describe('resolveRange', () => {
     expect(r.prevTo.getTime() - r.prevFrom.getTime()).toBeLessThanOrEqual(1)
   })
 
+  it("period 'month' pega o mês corrente e período anterior = mês anterior completo", () => {
+    const today = new Date('2026-06-23T14:00:00.000Z')
+    const r = resolveRange({ period: 'month' }, today)
+    expect(r.from.toISOString().slice(0, 10)).toBe('2026-06-01')
+    expect(r.from.getTime()).toBe(Date.UTC(2026, 5, 1))
+    expect(r.to.toISOString().slice(0, 10)).toBe('2026-06-23')
+    expect(r.prevFrom.toISOString().slice(0, 10)).toBe('2026-05-01')
+    expect(r.prevFrom.getTime()).toBe(Date.UTC(2026, 4, 1))
+    expect(r.prevTo.toISOString().slice(0, 10)).toBe('2026-05-31')
+  })
+
   it('to é o fim do dia de hoje (inclui leads criados hoje)', () => {
     const today = new Date('2026-06-19T14:30:00.000Z')
     const r = resolveRange({ period: '30d' }, today)
