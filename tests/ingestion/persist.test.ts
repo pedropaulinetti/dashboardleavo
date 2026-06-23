@@ -24,6 +24,7 @@ function makePull(): PullResult {
         channel: 'paid',
         utmSource: 'google',
         utmCampaign: 'camp-1',
+        creative: 'AD06',
         currentStage: 'mql',
         valueCents: 10000,
         lostReason: null,
@@ -127,17 +128,26 @@ describe('persist', () => {
     expect(row.identityKey).toBe('a@x.com')
   })
 
+  it('grava creative do lead (criativo via UTM_CONTENT)', async () => {
+    const [row] = await db
+      .select({ creative: schema.leads.creative })
+      .from(schema.leads)
+      .where(sql`${schema.leads.organizationId} = ${orgA} and ${schema.leads.externalId} = 'L1'`)
+    expect(row.creative).toBe('AD06')
+  })
+
   it('é idempotente: persist com os mesmos dados não duplica', async () => {
     await persist(db, orgA, provider, makePull())
     const c = await counts(orgA)
     expect(c).toEqual({ leads: 3, events: 3, metrics: 2 })
 
-    // identityKey continua íntegro após reprocessar (idempotência).
+    // identityKey e creative continuam íntegros após reprocessar (idempotência).
     const [row] = await db
-      .select({ identityKey: schema.leads.identityKey })
+      .select({ identityKey: schema.leads.identityKey, creative: schema.leads.creative })
       .from(schema.leads)
       .where(sql`${schema.leads.organizationId} = ${orgA} and ${schema.leads.externalId} = 'L1'`)
     expect(row.identityKey).toBe('a@x.com')
+    expect(row.creative).toBe('AD06')
   })
 
   it('atualiza campo mutável de lead em vez de duplicar', async () => {
