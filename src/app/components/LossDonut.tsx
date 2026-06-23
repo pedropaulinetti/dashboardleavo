@@ -1,13 +1,25 @@
 import type { DonutArc } from '@/dashboard/donut'
 import type { LossReasons } from '@/dashboard/queries'
 import { fmtInt } from '@/dashboard/format'
-import { LOSS_REASONS } from '@/dashboard/loss-reasons'
 
-const REASON_COLOR = new Map<string, string>(LOSS_REASONS.map((l) => [l.reason, l.color]))
-const FALLBACK_COLOR = 'hsl(var(--muted-foreground))'
+// Paleta de cores distintas para as fatias do donut. A cor de cada motivo é
+// definida pelo seu ÍNDICE em `loss.rows` (cíclica se houver mais motivos que
+// cores), garantindo consistência entre o arco do SVG e a legenda.
+const DONUT_PALETTE = [
+  'hsl(359 99% 57%)',
+  'hsl(24 94% 57%)',
+  'hsl(38 92% 58%)',
+  'hsl(199 89% 48%)',
+  'hsl(142 64% 40%)',
+  'hsl(262 83% 58%)',
+  'hsl(330 81% 60%)',
+  'hsl(48 96% 53%)',
+  'hsl(173 80% 40%)',
+  'hsl(215 16% 55%)',
+]
 
-function colorFor(reason: string): string {
-  return REASON_COLOR.get(reason) ?? FALLBACK_COLOR
+function colorFor(index: number): string {
+  return DONUT_PALETTE[index % DONUT_PALETTE.length]
 }
 
 export default function LossDonut({ loss, arcs }: { loss: LossReasons; arcs: DonutArc[] }) {
@@ -50,7 +62,7 @@ export default function LossDonut({ loss, arcs }: { loss: LossReasons; arcs: Don
                   cy={100}
                   r={64}
                   fill="none"
-                  stroke={colorFor(r.reason)}
+                  stroke={colorFor(i)}
                   strokeWidth={26}
                   strokeDasharray={arcs[i]?.dash}
                   strokeDashoffset={arcs[i]?.offset}
@@ -74,7 +86,7 @@ export default function LossDonut({ loss, arcs }: { loss: LossReasons; arcs: Don
             </div>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-            {loss.rows.map((r) => (
+            {loss.rows.map((r, i) => (
               <div
                 key={r.reason}
                 style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 13 }}
@@ -85,7 +97,7 @@ export default function LossDonut({ loss, arcs }: { loss: LossReasons; arcs: Don
                     height: 10,
                     borderRadius: 3,
                     flexShrink: 0,
-                    background: colorFor(r.reason),
+                    background: colorFor(i),
                   }}
                 />
                 <span

@@ -1,14 +1,8 @@
+import { Suspense } from 'react'
 import PeriodFilter from '../components/PeriodFilter'
 import ChannelFilter from '../components/ChannelFilter'
-import HighlightCards from '../components/HighlightCards'
-import CostCards from '../components/CostCards'
-import Funnel from '../components/Funnel'
-import UtmRanking from '../components/UtmRanking'
-import LossDonut from '../components/LossDonut'
-import Creatives from '../components/Creatives'
-import { auth } from '@/auth/config'
-import { db } from '@/db'
-import { getDashboardData } from '@/dashboard/queries'
+import DashboardContent from '../components/DashboardContent'
+import DashboardSkeleton from '../components/DashboardSkeleton'
 
 type Period = 'all' | 'month' | '7d' | '30d' | '90d' | '12m' | 'custom'
 type Channel = 'all' | 'meta' | 'google' | 'whats' | 'indica'
@@ -38,16 +32,6 @@ export default async function DashboardPage({
   const from = one(sp.from)
   const to = one(sp.to)
 
-  const session = await auth()
-  const orgId = session!.user.organizationId!
-
-  const data = await getDashboardData(
-    db,
-    orgId,
-    { period, channel, from, to },
-    new Date(),
-  )
-
   return (
     <div
       style={{
@@ -73,25 +57,12 @@ export default async function DashboardPage({
         <ChannelFilter channel={channel} />
       </div>
 
-      <HighlightCards data={data.highlights} />
-      <CostCards data={data.costCards} />
-      <Funnel
-        counts={data.funnel.counts}
-        convGeral={data.funnel.convGeral}
-        paths={data.funnelPaths}
-      />
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: '1.55fr 1fr',
-          gap: 20,
-          alignItems: 'start',
-        }}
+      <Suspense
+        key={`${period}|${channel}|${from ?? ''}|${to ?? ''}`}
+        fallback={<DashboardSkeleton />}
       >
-        <UtmRanking rows={data.utm} />
-        <LossDonut loss={data.loss} arcs={data.donutArcs} />
-      </div>
-      <Creatives items={data.creatives} />
+        <DashboardContent period={period} channel={channel} from={from} to={to} />
+      </Suspense>
     </div>
   )
 }
