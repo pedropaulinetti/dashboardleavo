@@ -1,9 +1,15 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useTransition } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 
 type Channel = 'all' | 'meta' | 'google' | 'whats' | 'indica'
+
+const spinnerIcon = (
+  <svg className="spin" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
+    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+  </svg>
+)
 
 const filterIcon = (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -37,10 +43,16 @@ export default function ChannelFilter({ channel = 'all' }: { channel?: Channel }
   const searchParams = useSearchParams()
 
   const [open, setOpen] = useState(false)
+  const [isPending, startTransition] = useTransition()
 
-  const currentLabel = channels.find((c) => c.value === channel)?.label ?? 'Todos os canais'
+  // Canal otimista: marca a escolha imediatamente. Só vale enquanto a navegação
+  // está pendente; ao terminar, volta a refletir a prop (estado real da URL).
+  const [optimistic, setOptimistic] = useState<Channel | null>(null)
+  const shownChannel = isPending && optimistic ? optimistic : channel
+  const currentLabel = channels.find((c) => c.value === shownChannel)?.label ?? 'Todos os canais'
 
   function selectChannel(value: Channel) {
+    setOptimistic(value)
     const params = new URLSearchParams(searchParams.toString())
     if (value === 'all') {
       params.delete('channel')
@@ -48,7 +60,9 @@ export default function ChannelFilter({ channel = 'all' }: { channel?: Channel }
       params.set('channel', value)
     }
     const qs = params.toString()
-    router.push(qs ? `${pathname}?${qs}` : pathname)
+    startTransition(() => {
+      router.push(qs ? `${pathname}?${qs}` : pathname)
+    })
     setOpen(false)
   }
 
@@ -59,6 +73,7 @@ export default function ChannelFilter({ channel = 'all' }: { channel?: Channel }
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="true"
         aria-expanded={open}
+        aria-busy={isPending}
         style={{
           display: 'inline-flex',
           alignItems: 'center',
@@ -71,11 +86,11 @@ export default function ChannelFilter({ channel = 'all' }: { channel?: Channel }
           border: '1px solid hsl(var(--border))',
           borderRadius: 10,
           padding: '9px 12px',
-          cursor: 'pointer',
+          cursor: isPending ? 'progress' : 'pointer',
         }}
       >
         <span style={{ fontSize: 15, display: 'inline-flex', color: 'hsl(var(--muted-foreground))' }}>
-          {filterIcon}
+          {isPending ? spinnerIcon : filterIcon}
         </span>
         {currentLabel}
         <span style={{ fontSize: 15, display: 'inline-flex', color: 'hsl(var(--muted-foreground))' }}>
@@ -104,7 +119,7 @@ export default function ChannelFilter({ channel = 'all' }: { channel?: Channel }
             }}
           >
             {channels.map((o) => {
-              const active = channel === o.value
+              const active = shownChannel === o.value
               return (
                 <button
                   key={o.value}

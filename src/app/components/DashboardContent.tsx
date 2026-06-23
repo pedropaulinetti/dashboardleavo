@@ -31,16 +31,19 @@ export default async function DashboardContent({
   const orgId = session!.user.organizationId!
 
   const now = new Date()
-
-  const data = await getDashboardData(db, orgId, { period, channel, from, to }, now)
-
   const range = resolveRange({ period, from, to }, now)
-  const series = await getTimeSeries(db, orgId, {
-    from: range.from,
-    to: range.to,
-    channel,
-    granularity,
-  })
+
+  // getDashboardData e getTimeSeries são independentes — rodam em paralelo
+  // (antes eram sequenciais, somando as duas latências).
+  const [data, series] = await Promise.all([
+    getDashboardData(db, orgId, { period, channel, from, to }, now),
+    getTimeSeries(db, orgId, {
+      from: range.from,
+      to: range.to,
+      channel,
+      granularity,
+    }),
+  ])
 
   return (
     <>

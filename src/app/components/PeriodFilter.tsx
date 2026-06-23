@@ -1,9 +1,15 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useTransition } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 
 type Period = 'all' | 'month' | '7d' | '30d' | '90d' | '12m' | 'custom'
+
+const spinnerIcon = (
+  <svg className="spin" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
+    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+  </svg>
+)
 
 const calendarIcon = (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -63,15 +69,29 @@ export default function PeriodFilter({
   const [open, setOpen] = useState(false)
   const [fromDate, setFromDate] = useState(from ?? '')
   const [toDate, setToDate] = useState(to ?? '')
+  const [isPending, startTransition] = useTransition()
+
+  // Seleção otimista: assim que o usuário clica, o label/marcação refletem a escolha
+  // imediatamente — antes do servidor responder. Só vale enquanto a navegação está
+  // pendente; ao terminar, volta a refletir as props (estado real da URL).
+  const [optimistic, setOptimistic] = useState<{ period: Period; from?: string; to?: string } | null>(
+    null,
+  )
+  const shownPeriod = isPending && optimistic ? optimistic.period : period
+  const shownFrom = isPending && optimistic ? optimistic.from : from
+  const shownTo = isPending && optimistic ? optimistic.to : to
 
   function pushParams(mutate: (params: URLSearchParams) => void) {
     const params = new URLSearchParams(searchParams.toString())
     mutate(params)
     const qs = params.toString()
-    router.push(qs ? `${pathname}?${qs}` : pathname)
+    startTransition(() => {
+      router.push(qs ? `${pathname}?${qs}` : pathname)
+    })
   }
 
   function selectPreset(value: Exclude<Period, 'custom'>) {
+    setOptimistic({ period: value })
     pushParams((params) => {
       params.set('period', value)
       params.delete('from')
@@ -81,6 +101,7 @@ export default function PeriodFilter({
   }
 
   function applyCustom() {
+    setOptimistic({ period: 'custom', from: fromDate, to: toDate })
     pushParams((params) => {
       params.set('period', 'custom')
       params.set('from', fromDate)
@@ -96,6 +117,7 @@ export default function PeriodFilter({
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="true"
         aria-expanded={open}
+        aria-busy={isPending}
         style={{
           display: 'inline-flex',
           alignItems: 'center',
@@ -108,13 +130,13 @@ export default function PeriodFilter({
           border: '1px solid hsl(var(--border))',
           borderRadius: 10,
           padding: '9px 12px',
-          cursor: 'pointer',
+          cursor: isPending ? 'progress' : 'pointer',
         }}
       >
         <span style={{ fontSize: 15, display: 'inline-flex', color: 'hsl(var(--muted-foreground))' }}>
-          {calendarIcon}
+          {isPending ? spinnerIcon : calendarIcon}
         </span>
-        {periodLabel(period, from, to)}
+        {periodLabel(shownPeriod, shownFrom, shownTo)}
         <span style={{ fontSize: 15, display: 'inline-flex', color: 'hsl(var(--muted-foreground))' }}>
           {chevronDownIcon}
         </span>
@@ -154,7 +176,7 @@ export default function PeriodFilter({
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 6 }}>
               {presets.map((o) => {
-                const active = period === o.value
+                const active = shownPeriod === o.value
                 return (
                   <button
                     key={o.value}
