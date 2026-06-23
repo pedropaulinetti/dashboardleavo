@@ -352,36 +352,51 @@ export interface CreativeItem {
   channel: string | null
   vendas: number
   revenueCents: number
+  leadsCount?: number
 }
 
 /**
- * Ranking de criativos: agrupa ad_metrics por creative no range/canal.
- * Ordena por receita desc. Top 5. Escopo: org.
+ * Ranking de criativos: agrupa leads por creative (UTM_CONTENT vindo do DataCrazy)
+ * no range/canal, ignorando leads sem creative. `vendas` = leads na etapa 'vendas';
+ * `revenueCents` = soma de value_cents (só vendas têm valor). Canal representativo via
+ * max(channel). Ordena por receita desc (desempate por vendas desc). Top 8. Escopo: org.
  */
 export async function getCreatives(
   database: AnyDb,
   organizationId: string,
   filters: Filters,
 ): Promise<CreativeItem[]> {
+  const isVenda = sql`${leads.currentStage} = 'vendas'`
+  const vendasExpr = sql<number>`count(*) filter (where ${isVenda})`
+  const revenueExpr = sum(leads.valueCents)
+
   const rows = await database
     .select({
-      name: adMetrics.creative,
-      channel: sql<string | null>`max(${adMetrics.channel})`,
-      vendas: sum(adMetrics.sales),
-      revenueCents: sum(adMetrics.revenueCents),
+      name: leads.creative,
+      channel: sql<string | null>`max(${leads.channel})`,
+      vendas: vendasExpr,
+      revenueCents: revenueExpr,
+      leadsCount: count(),
     })
-    .from(adMetrics)
-    .where(adMetricsWhere(organizationId, filters))
-    .groupBy(adMetrics.creative)
-    .orderBy(desc(sum(adMetrics.revenueCents)))
-    .limit(5)
+    .from(leads)
+    .where(
+      and(
+        leadCohortWhere(organizationId, filters),
+        isNotNull(leads.creative),
+        sql`${leads.creative} <> ''`,
+      ),
+    )
+    .groupBy(leads.creative)
+    .orderBy(desc(revenueExpr), desc(vendasExpr))
+    .limit(8)
 
   return rows.map((r, i) => ({
     rank: i + 1,
-    name: r.name,
+    name: r.name as string,
     channel: r.channel,
     vendas: Number(r.vendas ?? 0),
     revenueCents: Number(r.revenueCents ?? 0),
+    leadsCount: Number(r.leadsCount ?? 0),
   }))
 }
 

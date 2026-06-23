@@ -23,6 +23,7 @@ let lossOrg: string
 let roasOrg: string
 let utmRegOrg: string
 let identityOrg: string
+let creativeOrg: string
 
 // Ranges determinísticos
 const cur = { from: new Date('2026-06-01T00:00:00Z'), to: new Date('2026-06-30T23:59:59Z') }
@@ -41,6 +42,7 @@ async function seedLead(opts: {
   organizationId?: string
   utmSource?: string
   utmCampaign?: string
+  creative?: string
   lostReason?: string
   provider?: 'leavo' | 'datacrazy' | 'meta_ads' | 'webhook'
   identityKey?: string
@@ -56,6 +58,7 @@ async function seedLead(opts: {
       channel: opts.channel,
       utmSource: opts.utmSource ?? null,
       utmCampaign: opts.utmCampaign ?? null,
+      creative: opts.creative ?? null,
       currentStage: opts.stages[opts.stages.length - 1]?.stage ?? 'leads',
       valueCents: opts.value ?? 0,
       lostReason: opts.lostReason ?? null,
@@ -89,6 +92,7 @@ beforeAll(async () => {
   const [o5] = await db.insert(schema.organizations).values({ name: 'Roas', slug: 'roas' }).returning()
   const [o6] = await db.insert(schema.organizations).values({ name: 'UtmReg', slug: 'utmreg' }).returning()
   const [o7] = await db.insert(schema.organizations).values({ name: 'Identity', slug: 'identity' }).returning()
+  const [o8] = await db.insert(schema.organizations).values({ name: 'Creative', slug: 'creative' }).returning()
   org = o.id
   otherOrg = o2.id
   costOrg = o3.id
@@ -96,6 +100,7 @@ beforeAll(async () => {
   roasOrg = o5.id
   utmRegOrg = o6.id
   identityOrg = o7.id
+  creativeOrg = o8.id
 
   const jun = d('2026-06-10T12:00:00Z')
   const may = d('2026-05-10T12:00:00Z')
@@ -210,6 +215,20 @@ beforeAll(async () => {
     identityKey: 'b@x.com',
     stages: upTo(3, jun), // leads, mql, agendadas
   })
+
+  // --- creativeOrg: ranking de criativos por leads.creative (UTM_CONTENT).
+  // AD06: 2 vendas (full) somando 80000 + 1 lead não-venda -> rev 80000, vendas 2, leads 3.
+  // AD07: 1 venda (full) 50000 -> rev 50000, vendas 1, leads 1.
+  // AD08: 1 lead que NÃO virou venda (value 0) -> rev 0, vendas 0, leads 1.
+  // 2 leads SEM creative (null / '') -> devem ser ignorados.
+  await seedLead({ ext: 'CR-a', channel: 'meta', createdAt: jun, value: 50000, organizationId: creativeOrg, creative: 'AD06', stages: full(jun) })
+  await seedLead({ ext: 'CR-b', channel: 'meta', createdAt: jun, value: 30000, organizationId: creativeOrg, creative: 'AD06', stages: full(jun) })
+  await seedLead({ ext: 'CR-c', channel: 'meta', createdAt: jun, organizationId: creativeOrg, creative: 'AD06', stages: upTo(2, jun) }) // não-venda
+  await seedLead({ ext: 'CR-d', channel: 'google', createdAt: jun, value: 50000, organizationId: creativeOrg, creative: 'AD07', stages: full(jun) })
+  await seedLead({ ext: 'CR-e', channel: 'meta', createdAt: jun, organizationId: creativeOrg, creative: 'AD08', stages: upTo(1, jun) }) // não-venda
+  // sem creative -> ignorados
+  await seedLead({ ext: 'CR-f', channel: 'meta', createdAt: jun, value: 99999, organizationId: creativeOrg, stages: full(jun) }) // creative null
+  await seedLead({ ext: 'CR-g', channel: 'meta', createdAt: jun, value: 99999, organizationId: creativeOrg, creative: '', stages: full(jun) }) // creative ''
 })
 
 describe('getFunnelCounts', () => {
@@ -383,27 +402,52 @@ describe('getUtmRanking', () => {
 })
 
 describe('getCreatives', () => {
-  it('ordena por receita desc, com somas e rank corretos', async () => {
-    const rows = await getCreatives(db, org, { ...cur, channel: 'all' })
-    // cr1 (rev 90000), cr2 (200000), cr3 (50000) -> ordenado: cr2, cr1, cr3
-    expect(rows.map((r) => r.name)).toEqual(['cr2', 'cr1', 'cr3'])
+  it('ranqueia por leads.creative (UTM_CONTENT): receita desc, somas e rank corretos', async () => {
+    const rows = await getCreatives(db, creativeOrg, { ...cur, channel: 'all' })
+    // AD06 (rev 80000, vendas 2), AD07 (rev 50000, vendas 1), AD08 (rev 0, vendas 0)
+    // -> ordenado por receita desc: AD06, AD07, AD08
+    expect(rows.map((r) => r.name)).toEqual(['AD06', 'AD07', 'AD08'])
     expect(rows.map((r) => r.rank)).toEqual([1, 2, 3])
-    expect(rows[0].revenueCents).toBe(200000)
-    expect(rows[0].vendas).toBe(5)
-    expect(rows[0].channel).toBe('meta')
-    expect(rows[2].channel).toBe('google')
+
+    const ad06 = rows[0]
+    expect(ad06.revenueCents).toBe(80000) // 50000 + 30000
+    expect(ad06.vendas).toBe(2)
+    expect(ad06.channel).toBe('meta')
+
+    const ad07 = rows[1]
+    expect(ad07.revenueCents).toBe(50000)
+    expect(ad07.vendas).toBe(1)
+    expect(ad07.channel).toBe('google')
+
+    const ad08 = rows[2]
+    expect(ad08.revenueCents).toBe(0)
+    expect(ad08.vendas).toBe(0)
   })
 
-  it('limita a top 5', async () => {
-    const rows = await getCreatives(db, org, { ...cur, channel: 'all' })
-    expect(rows.length).toBeLessThanOrEqual(5)
+  it('ignora leads sem creative (null ou string vazia)', async () => {
+    const rows = await getCreatives(db, creativeOrg, { ...cur, channel: 'all' })
+    // CR-f (creative null) e CR-g (creative '') são vendas de alto valor mas não entram
+    expect(rows.map((r) => r.name)).toEqual(['AD06', 'AD07', 'AD08'])
+    // se tivessem entrado, apareceria 99999 como receita
+    expect(rows.some((r) => r.revenueCents === 99999)).toBe(false)
+  })
+
+  it('limita a top 8', async () => {
+    const rows = await getCreatives(db, creativeOrg, { ...cur, channel: 'all' })
+    expect(rows.length).toBeLessThanOrEqual(8)
+  })
+
+  it('filtra por canal (leads.channel)', async () => {
+    const rows = await getCreatives(db, creativeOrg, { ...cur, channel: 'google' })
+    // só AD07 tem lead no canal google
+    expect(rows.map((r) => r.name)).toEqual(['AD07'])
+    expect(rows[0].channel).toBe('google')
   })
 
   it('não vaza dados de outra org', async () => {
-    const rows = await getCreatives(db, costOrg, { ...cur, channel: 'all' })
-    expect(rows.length).toBe(1)
-    expect(rows[0].name).toBe('ccr1')
-    expect(rows[0].revenueCents).toBe(30000)
+    const rows = await getCreatives(db, org, { ...cur, channel: 'all' })
+    // a org principal não tem leads com creative -> ranking vazio
+    expect(rows.length).toBe(0)
   })
 })
 
