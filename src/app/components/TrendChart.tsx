@@ -1,9 +1,9 @@
 'use client'
 
+import { useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import {
   CartesianGrid,
-  Legend,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -19,6 +19,14 @@ const GRAN_OPTIONS: { value: Granularity; label: string }[] = [
   { value: 'month', label: 'Mês' },
   { value: 'year', label: 'Ano' },
 ]
+
+const SERIES = [
+  { key: 'leads', label: 'Leads', color: 'hsl(142 64% 40%)', axis: 'left' },
+  { key: 'agendadas', label: 'Agendadas', color: 'hsl(199 89% 48%)', axis: 'left' },
+  { key: 'realizadas', label: 'Realizadas', color: 'hsl(262 83% 58%)', axis: 'left' },
+  { key: 'vendas', label: 'Fechados', color: 'hsl(var(--primary))', axis: 'left' },
+  { key: 'spendCents', label: 'Investimento', color: 'hsl(38 92% 50%)', axis: 'right' },
+] as const
 
 const MONTHS_PT = [
   'jan',
@@ -68,6 +76,14 @@ export default function TrendChart({
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
+
+  const [visible, setVisible] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(SERIES.map((s) => [s.key, true])),
+  )
+
+  function toggleSeries(key: string) {
+    setVisible((prev) => ({ ...prev, [key]: !prev[key] }))
+  }
 
   function selectGran(value: Granularity) {
     const params = new URLSearchParams(searchParams.toString())
@@ -148,6 +164,57 @@ export default function TrendChart({
         </div>
       </div>
 
+      <div
+        role="group"
+        aria-label="Séries visíveis"
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: 8,
+          marginBottom: 16,
+        }}
+      >
+        {SERIES.map((s) => {
+          const active = visible[s.key]
+          return (
+            <button
+              key={s.key}
+              type="button"
+              onClick={() => toggleSeries(s.key)}
+              aria-pressed={active}
+              style={{
+                fontFamily: 'inherit',
+                fontSize: 13,
+                fontWeight: 500,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 7,
+                borderRadius: 999,
+                padding: '5px 12px',
+                border: active ? `1px solid ${s.color}` : '1px solid hsl(var(--border))',
+                background: active ? 'hsl(var(--card))' : 'hsl(var(--muted) / .4)',
+                color: active ? 'hsl(var(--foreground))' : 'hsl(var(--muted-foreground))',
+                opacity: active ? 1 : 0.45,
+                transition: 'opacity .15s, border-color .15s',
+              }}
+            >
+              <span
+                aria-hidden
+                style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: 3,
+                  background: s.color,
+                  flexShrink: 0,
+                }}
+              />
+              {s.label}
+            </button>
+          )
+        })}
+      </div>
+
       {data.length === 0 ? (
         <div
           style={{
@@ -203,52 +270,19 @@ export default function TrendChart({
                 fontSize: 13,
               }}
             />
-            <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
-            <Line
-              yAxisId="left"
-              type="monotone"
-              dataKey="leads"
-              name="Leads"
-              stroke="hsl(142 64% 40%)"
-              strokeWidth={2}
-              dot={false}
-            />
-            <Line
-              yAxisId="left"
-              type="monotone"
-              dataKey="agendadas"
-              name="Agendadas"
-              stroke="hsl(199 89% 48%)"
-              strokeWidth={2}
-              dot={false}
-            />
-            <Line
-              yAxisId="left"
-              type="monotone"
-              dataKey="realizadas"
-              name="Realizadas"
-              stroke="hsl(262 83% 58%)"
-              strokeWidth={2}
-              dot={false}
-            />
-            <Line
-              yAxisId="left"
-              type="monotone"
-              dataKey="vendas"
-              name="Fechados"
-              stroke="hsl(var(--primary))"
-              strokeWidth={2}
-              dot={false}
-            />
-            <Line
-              yAxisId="right"
-              type="monotone"
-              dataKey="spendCents"
-              name="Investimento"
-              stroke="hsl(38 92% 50%)"
-              strokeWidth={2}
-              dot={false}
-            />
+            {SERIES.map((s) => (
+              <Line
+                key={s.key}
+                yAxisId={s.axis}
+                type="monotone"
+                dataKey={s.key}
+                name={s.label}
+                stroke={s.color}
+                strokeWidth={2}
+                dot={false}
+                hide={!visible[s.key]}
+              />
+            ))}
           </LineChart>
         </ResponsiveContainer>
       )}
