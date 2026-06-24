@@ -26,6 +26,7 @@ export async function persist(
           organizationId,
           provider: prov,
           externalId: l.externalId,
+          name: l.name ?? null,
           channel: l.channel ?? null,
           utmSource: l.utmSource ?? null,
           utmCampaign: l.utmCampaign ?? null,
@@ -41,6 +42,7 @@ export async function persist(
       .onConflictDoUpdate({
         target: [leads.organizationId, leads.provider, leads.externalId],
         set: {
+          name: sql`excluded.name`,
           channel: sql`excluded.channel`,
           utmSource: sql`excluded.utm_source`,
           utmCampaign: sql`excluded.utm_campaign`,

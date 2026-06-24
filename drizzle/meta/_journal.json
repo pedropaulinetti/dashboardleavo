@@ -43,6 +43,13 @@
       "when": 1782231662967,
       "tag": "0005_mushy_tattoo",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1782324987798,
+      "tag": "0006_nifty_jigsaw",
+      "breakpoints": true
     }
   ]
 }

@@ -51,6 +51,7 @@ export const leads = pgTable('leads', {
   organizationId: uuid('organization_id').notNull().references(() => organizations.id),
   provider: providerEnum('provider').notNull(),
   externalId: text('external_id').notNull(),
+  name: text('name'),
   identityKey: text('identity_key'),
   channel: text('channel'),
   utmSource: text('utm_source'),

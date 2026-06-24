@@ -336,6 +336,7 @@ export const datacrazyAdapter: SourceAdapter = {
 
       leads.push({
         externalId: business.id,
+        name: business.lead?.name ?? null,
         channel: deriveChannel(business.lead?.tags, business.lead?.source),
         utmSource: utm?.utmSource ?? deriveUtmSource(business.lead),
         utmCampaign: utm?.utmCampaign,

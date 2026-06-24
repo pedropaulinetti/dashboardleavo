@@ -75,7 +75,7 @@ const businesses = [
     externalId: null,
     lead: {
       id: 'lead-won',
-      name: 'Ana',
+      name: 'Gabriel',
       email: 'ANA@Example.com',
       phone: null,
       source: 'leavo_lp_videodemo',
@@ -318,6 +318,7 @@ describe('datacrazyAdapter', () => {
 
     const won = leadById(r.leads, 'biz-won')
     expect(won.currentStage).toBe('vendas')
+    expect(won.name).toBe('Gabriel')
     expect(won.valueCents).toBe(100000)
     expect(won.lostReason ?? null).toBeNull()
     expect(stagesOf(r.stageEvents, 'biz-won')).toEqual([

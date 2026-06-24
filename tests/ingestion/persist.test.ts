@@ -21,6 +21,7 @@ function makePull(): PullResult {
     leads: [
       {
         externalId: 'L1',
+        name: 'Fulano',
         channel: 'paid',
         utmSource: 'google',
         utmCampaign: 'camp-1',
@@ -136,18 +137,27 @@ describe('persist', () => {
     expect(row.creative).toBe('AD06')
   })
 
+  it('grava name do lead', async () => {
+    const [row] = await db
+      .select({ name: schema.leads.name })
+      .from(schema.leads)
+      .where(sql`${schema.leads.organizationId} = ${orgA} and ${schema.leads.externalId} = 'L1'`)
+    expect(row.name).toBe('Fulano')
+  })
+
   it('é idempotente: persist com os mesmos dados não duplica', async () => {
     await persist(db, orgA, provider, makePull())
     const c = await counts(orgA)
     expect(c).toEqual({ leads: 3, events: 3, metrics: 2 })
 
-    // identityKey e creative continuam íntegros após reprocessar (idempotência).
+    // identityKey, creative e name continuam íntegros após reprocessar (idempotência).
     const [row] = await db
-      .select({ identityKey: schema.leads.identityKey, creative: schema.leads.creative })
+      .select({ identityKey: schema.leads.identityKey, creative: schema.leads.creative, name: schema.leads.name })
       .from(schema.leads)
       .where(sql`${schema.leads.organizationId} = ${orgA} and ${schema.leads.externalId} = 'L1'`)
     expect(row.identityKey).toBe('a@x.com')
     expect(row.creative).toBe('AD06')
+    expect(row.name).toBe('Fulano')
   })
 
   it('atualiza campo mutável de lead em vez de duplicar', async () => {
