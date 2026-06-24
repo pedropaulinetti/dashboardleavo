@@ -25,6 +25,7 @@ let utmRegOrg: string
 let identityOrg: string
 let creativeOrg: string
 let cycleOrg: string
+let dedupOrg: string
 
 // Ranges determinísticos
 const cur = { from: new Date('2026-06-01T00:00:00Z'), to: new Date('2026-06-30T23:59:59Z') }
@@ -95,6 +96,7 @@ beforeAll(async () => {
   const [o7] = await db.insert(schema.organizations).values({ name: 'Identity', slug: 'identity' }).returning()
   const [o8] = await db.insert(schema.organizations).values({ name: 'Creative', slug: 'creative' }).returning()
   const [o9] = await db.insert(schema.organizations).values({ name: 'Cycle', slug: 'cycle' }).returning()
+  const [o10] = await db.insert(schema.organizations).values({ name: 'Dedup', slug: 'dedup' }).returning()
   org = o.id
   otherOrg = o2.id
   costOrg = o3.id
@@ -104,6 +106,7 @@ beforeAll(async () => {
   identityOrg = o7.id
   creativeOrg = o8.id
   cycleOrg = o9.id
+  dedupOrg = o10.id
 
   const jun = d('2026-06-10T12:00:00Z')
   const may = d('2026-05-10T12:00:00Z')
@@ -253,6 +256,23 @@ beforeAll(async () => {
     { organizationId: cycleOrg, provider: 'meta_ads', date: d('2026-06-05'), campaign: 'cy', creative: 'cy', channel: 'meta', spendCents: 90000 },
     { organizationId: cycleOrg, provider: 'meta_ads', date: d('2026-05-10'), campaign: 'cy', creative: 'cy', channel: 'meta', spendCents: 80000 },
   ])
+
+  // --- dedupOrg: MESMA identidade ('dup@x.com') com 2 lead rows (2 negócios),
+  // mesmo utmSource/utmCampaign/creative, AMBOS atingiram 'vendas'. Deve contar como
+  // 1 lead e 1 venda no getUtmRanking e getCreatives (igual ao funil, por identidade).
+  // Um 3o lead de OUTRA identidade ('solo@x.com'), mesma campanha/creative, não-venda.
+  await seedLead({
+    ext: 'DUP-1', channel: 'meta', createdAt: jun, value: 60000, organizationId: dedupOrg,
+    provider: 'leavo', identityKey: 'dup@x.com', utmSource: 'facebook', utmCampaign: 'dup', creative: 'ADX', stages: full(jun),
+  })
+  await seedLead({
+    ext: 'DUP-2', channel: 'meta', createdAt: jun, value: 40000, organizationId: dedupOrg,
+    provider: 'datacrazy', identityKey: 'dup@x.com', utmSource: 'facebook', utmCampaign: 'dup', creative: 'ADX', stages: full(jun),
+  })
+  await seedLead({
+    ext: 'SOLO', channel: 'meta', createdAt: jun, organizationId: dedupOrg,
+    provider: 'leavo', identityKey: 'solo@x.com', utmSource: 'facebook', utmCampaign: 'dup', creative: 'ADX', stages: upTo(1, jun),
+  })
 })
 
 describe('getFunnelCounts', () => {
@@ -472,6 +492,18 @@ describe('getUtmRanking', () => {
     expect(r.vendas).toBe(1)
     expect(r.conv).toBe(1)
   })
+
+  it('conta por IDENTIDADE: 2 negócios da mesma pessoa = 1 lead e 1 venda (bate com o funil)', async () => {
+    const rows = await getUtmRanking(db, dedupOrg, { ...cur, channel: 'all' })
+    expect(rows.length).toBe(1)
+    const r = rows[0]
+    expect(r.campaign).toBe('dup')
+    // dup@x.com (2 lead rows) + solo@x.com (1 row) -> 2 identidades distintas, não 3 linhas
+    expect(r.leads).toBe(2)
+    // só dup@x.com atingiu vendas (ambos os negócios), conta 1 venda; solo só leads
+    expect(r.vendas).toBe(1)
+    expect(r.conv).toBe(1 / 2)
+  })
 })
 
 describe('getCreatives', () => {
@@ -521,6 +553,19 @@ describe('getCreatives', () => {
     const rows = await getCreatives(db, org, { ...cur, channel: 'all' })
     // a org principal não tem leads com creative -> ranking vazio
     expect(rows.length).toBe(0)
+  })
+
+  it('conta por IDENTIDADE: 2 negócios da mesma pessoa = 1 lead e 1 venda (bate com o funil)', async () => {
+    const rows = await getCreatives(db, dedupOrg, { ...cur, channel: 'all' })
+    expect(rows.length).toBe(1)
+    const adx = rows[0]
+    expect(adx.name).toBe('ADX')
+    // dup@x.com (2 lead rows) + solo@x.com (1 row) -> 2 identidades, não 3 linhas
+    expect(adx.leadsCount).toBe(2)
+    // só dup@x.com atingiu vendas (1 identidade), apesar de 2 negócios
+    expect(adx.vendas).toBe(1)
+    // receita soma value_cents de todas as linhas (só vendas têm valor): 60000 + 40000
+    expect(adx.revenueCents).toBe(100000)
   })
 })
 

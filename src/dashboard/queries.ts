@@ -389,22 +389,26 @@ export async function getUtmRanking(
       and ${leadStageEvents.stage} = 'vendas'
   )`
 
+  // Identidade: o mesmo cliente pode ter vários leads (ex.: 2 negócios) com o mesmo
+  // identityKey — conta uma vez, igual ao funil. Quando identityKey é nulo, cada lead
+  // é sua própria identidade (id). Contagens distinct alinham os totais com o funil.
+  const identity = sql`coalesce(${leads.identityKey}, ${leads.id}::text)`
+  const leadsExpr = sql<number>`count(distinct ${identity})`
+  const vendasExpr = sql<number>`count(distinct ${identity}) filter (where ${reachedVendas})`
+
   // Ranking de leads e spend por campanha são independentes — rodam em paralelo.
   const [rows, spendRows] = await Promise.all([
     database
       .select({
         source: leads.utmSource,
         campaign: leads.utmCampaign,
-        leads: count(),
-        vendas: sql<number>`count(*) filter (where ${reachedVendas})`,
+        leads: leadsExpr,
+        vendas: vendasExpr,
       })
       .from(leads)
       .where(leadCohortWhere(organizationId, filters))
       .groupBy(leads.utmSource, leads.utmCampaign)
-      .orderBy(
-        desc(sql`count(*) filter (where ${reachedVendas})`),
-        desc(count()),
-      )
+      .orderBy(desc(vendasExpr), desc(leadsExpr))
       .limit(5),
     database
       .select({
@@ -454,8 +458,18 @@ export async function getCreatives(
   organizationId: string,
   filters: Filters,
 ): Promise<CreativeItem[]> {
-  const isVenda = sql`${leads.currentStage} = 'vendas'`
-  const vendasExpr = sql<number>`count(*) filter (where ${isVenda})`
+  // "Venda" = o lead ATINGIU a etapa vendas (tem evento 'vendas'), coerente com o
+  // funil/highlights/getUtmRanking — não depende do currentStage, que pode ter regredido.
+  const reachedVendas = sql`exists (
+    select 1 from ${leadStageEvents}
+    where ${leadStageEvents.leadId} = ${leads.id}
+      and ${leadStageEvents.organizationId} = ${organizationId}
+      and ${leadStageEvents.stage} = 'vendas'
+  )`
+  // Contagens por identidade (mesmo cliente com 2 negócios conta 1), alinhadas ao funil.
+  const identity = sql`coalesce(${leads.identityKey}, ${leads.id}::text)`
+  const vendasExpr = sql<number>`count(distinct ${identity}) filter (where ${reachedVendas})`
+  const leadsExpr = sql<number>`count(distinct ${identity})`
   const revenueExpr = sum(leads.valueCents)
 
   const rows = await database
@@ -464,7 +478,7 @@ export async function getCreatives(
       channel: sql<string | null>`max(${leads.channel})`,
       vendas: vendasExpr,
       revenueCents: revenueExpr,
-      leadsCount: count(),
+      leadsCount: leadsExpr,
     })
     .from(leads)
     .where(
