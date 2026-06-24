@@ -560,6 +560,58 @@ export async function getLossReasons(
   }
 }
 
+export interface RecentLeadItem {
+  name: string | null
+  contact: string | null // identityKey (email/telefone normalizado)
+  channel: string | null
+  utmSource: string | null
+  creative: string | null
+  currentStage: string
+  valueCents: number
+  lostReason: string | null
+  createdAt: Date
+}
+
+/**
+ * Os leads mais recentes da coorte (org + createdAt no range + canal), ordenados
+ * por createdAt desc, limitados a `limit`. `contact` é o identityKey. Escopo: org.
+ */
+export async function getRecentLeads(
+  database: AnyDb,
+  organizationId: string,
+  filters: Filters,
+  limit = 15,
+): Promise<RecentLeadItem[]> {
+  const rows = await database
+    .select({
+      name: leads.name,
+      contact: leads.identityKey,
+      channel: leads.channel,
+      utmSource: leads.utmSource,
+      creative: leads.creative,
+      currentStage: leads.currentStage,
+      valueCents: leads.valueCents,
+      lostReason: leads.lostReason,
+      createdAt: leads.createdAt,
+    })
+    .from(leads)
+    .where(leadCohortWhere(organizationId, filters))
+    .orderBy(desc(leads.createdAt))
+    .limit(limit)
+
+  return rows.map((r) => ({
+    name: r.name,
+    contact: r.contact,
+    channel: r.channel,
+    utmSource: r.utmSource,
+    creative: r.creative,
+    currentStage: r.currentStage,
+    valueCents: Number(r.valueCents ?? 0),
+    lostReason: r.lostReason,
+    createdAt: r.createdAt,
+  }))
+}
+
 export type Granularity = 'day' | 'month' | 'year'
 
 export interface TimeSeriesPoint {
@@ -711,6 +763,7 @@ export interface DashboardData {
   loss: LossReasons
   funnelPaths: FunnelPath[]
   donutArcs: DonutArc[]
+  recentLeads: RecentLeadItem[]
 }
 
 /**
@@ -743,6 +796,7 @@ export async function getDashboardData(
     utm,
     creatives,
     loss,
+    recentLeads,
   ] = await Promise.all([
     getFunnelCounts(database, organizationId, cur),
     getFunnelCounts(database, organizationId, prev),
@@ -755,6 +809,7 @@ export async function getDashboardData(
     getUtmRanking(database, organizationId, cur),
     getCreatives(database, organizationId, cur),
     getLossReasons(database, organizationId, cur),
+    getRecentLeads(database, organizationId, cur),
   ])
 
   const funnel = { counts: funnelCur, convGeral: safeDiv(funnelCur[5], funnelCur[0]) }
@@ -776,5 +831,5 @@ export async function getDashboardData(
   const funnelPaths = buildFunnelPaths(funnel.counts)
   const donutArcs = buildDonutArcs(loss.rows.map((r) => r.count))
 
-  return { funnel, highlights, costCards, utm, creatives, loss, funnelPaths, donutArcs }
+  return { funnel, highlights, costCards, utm, creatives, loss, funnelPaths, donutArcs, recentLeads }
 }

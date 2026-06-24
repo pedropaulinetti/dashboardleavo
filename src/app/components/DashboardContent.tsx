@@ -5,6 +5,7 @@ import TrendChart from './TrendChart'
 import UtmRanking from './UtmRanking'
 import LossDonut from './LossDonut'
 import Creatives from './Creatives'
+import RecentLeads from './RecentLeads'
 import { auth } from '@/auth/config'
 import { db } from '@/db'
 import { getDashboardData, getTimeSeries } from '@/dashboard/queries'
@@ -67,6 +68,7 @@ export default async function DashboardContent({
         <LossDonut loss={data.loss} arcs={data.donutArcs} />
       </div>
       <Creatives items={data.creatives} />
+      <RecentLeads items={data.recentLeads} />
     </>
   )
 }

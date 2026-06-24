@@ -8,6 +8,7 @@ import {
   getUtmRanking,
   getCreatives,
   getLossReasons,
+  getRecentLeads,
   getDashboardData,
 } from '@/dashboard/queries'
 import { LOSS_REASONS } from '@/dashboard/loss-reasons'
@@ -26,6 +27,8 @@ let identityOrg: string
 let creativeOrg: string
 let cycleOrg: string
 let dedupOrg: string
+let recentOrg: string
+let recentOtherOrg: string
 
 // Ranges determinísticos
 const cur = { from: new Date('2026-06-01T00:00:00Z'), to: new Date('2026-06-30T23:59:59Z') }
@@ -97,6 +100,8 @@ beforeAll(async () => {
   const [o8] = await db.insert(schema.organizations).values({ name: 'Creative', slug: 'creative' }).returning()
   const [o9] = await db.insert(schema.organizations).values({ name: 'Cycle', slug: 'cycle' }).returning()
   const [o10] = await db.insert(schema.organizations).values({ name: 'Dedup', slug: 'dedup' }).returning()
+  const [o11] = await db.insert(schema.organizations).values({ name: 'Recent', slug: 'recent' }).returning()
+  const [o12] = await db.insert(schema.organizations).values({ name: 'RecentOther', slug: 'recent-other' }).returning()
   org = o.id
   otherOrg = o2.id
   costOrg = o3.id
@@ -107,6 +112,8 @@ beforeAll(async () => {
   creativeOrg = o8.id
   cycleOrg = o9.id
   dedupOrg = o10.id
+  recentOrg = o11.id
+  recentOtherOrg = o12.id
 
   const jun = d('2026-06-10T12:00:00Z')
   const may = d('2026-05-10T12:00:00Z')
@@ -272,6 +279,42 @@ beforeAll(async () => {
   await seedLead({
     ext: 'SOLO', channel: 'meta', createdAt: jun, organizationId: dedupOrg,
     provider: 'leavo', identityKey: 'solo@x.com', utmSource: 'facebook', utmCampaign: 'dup', creative: 'ADX', stages: upTo(1, jun),
+  })
+
+  // --- recentOrg: leads mais recentes do período (getRecentLeads).
+  // createdAt variados; ordenação esperada por createdAt DESC.
+  // RC3 (dia 20) > RC2 (dia 15) > RC1 (dia 05). RC-OLD (maio) fora do range atual.
+  // RC-G é do canal google (testa filtro por canal). RC-OTHER é de outra org (não vaza).
+  await seedLead({
+    ext: 'RC1', channel: 'meta', createdAt: d('2026-06-05T10:00:00Z'), value: 30000,
+    organizationId: recentOrg, identityKey: 'rc1@x.com', utmSource: 'facebook', creative: 'CR1',
+    stages: full(d('2026-06-05T10:00:00Z')),
+  })
+  await seedLead({
+    ext: 'RC2', channel: 'meta', createdAt: d('2026-06-15T10:00:00Z'),
+    organizationId: recentOrg, identityKey: 'rc2@x.com', utmSource: 'instagram', lostReason: 'Preço / orçamento',
+    stages: upTo(2, d('2026-06-15T10:00:00Z')),
+  })
+  await seedLead({
+    ext: 'RC3', channel: 'meta', createdAt: d('2026-06-20T10:00:00Z'), value: 90000,
+    organizationId: recentOrg, identityKey: 'rc3@x.com', utmSource: 'facebook',
+    stages: full(d('2026-06-20T10:00:00Z')),
+  })
+  await seedLead({
+    ext: 'RC-G', channel: 'google', createdAt: d('2026-06-18T10:00:00Z'),
+    organizationId: recentOrg, identityKey: 'rcg@x.com', utmSource: 'organic',
+    stages: upTo(1, d('2026-06-18T10:00:00Z')),
+  })
+  await seedLead({
+    ext: 'RC-OLD', channel: 'meta', createdAt: may,
+    organizationId: recentOrg, identityKey: 'old@x.com',
+    stages: upTo(1, may),
+  })
+  // Ruído numa org dedicada com identityKey distinto — não deve vazar p/ recentOrg.
+  await seedLead({
+    ext: 'RC-OTHER', channel: 'meta', createdAt: d('2026-06-25T10:00:00Z'),
+    organizationId: recentOtherOrg, identityKey: 'other@x.com',
+    stages: upTo(1, d('2026-06-25T10:00:00Z')),
   })
 })
 
@@ -611,6 +654,51 @@ describe('getLossReasons', () => {
   })
 })
 
+describe('getRecentLeads', () => {
+  it('retorna leads ordenados por createdAt desc com os campos certos', async () => {
+    const rows = await getRecentLeads(db, recentOrg, { ...cur, channel: 'all' })
+    // RC3 (dia 20), RC-G (dia 18), RC2 (dia 15), RC1 (dia 05) — RC-OLD (maio) fora do range.
+    expect(rows.map((r) => r.contact)).toEqual([
+      'rc3@x.com',
+      'rcg@x.com',
+      'rc2@x.com',
+      'rc1@x.com',
+    ])
+    // ordenado por createdAt desc
+    for (let i = 1; i < rows.length; i++) {
+      expect(rows[i - 1].createdAt.getTime()).toBeGreaterThanOrEqual(rows[i].createdAt.getTime())
+    }
+
+    const rc3 = rows[0]
+    expect(rc3.contact).toBe('rc3@x.com')
+    expect(rc3.currentStage).toBe('vendas')
+    expect(rc3.valueCents).toBe(90000)
+    expect(rc3.utmSource).toBe('facebook')
+    expect(rc3.channel).toBe('meta')
+    expect(rc3.lostReason).toBeNull()
+
+    const rc2 = rows[2]
+    expect(rc2.contact).toBe('rc2@x.com')
+    expect(rc2.lostReason).toBe('Preço / orçamento')
+  })
+
+  it('respeita o filtro de canal', async () => {
+    const rows = await getRecentLeads(db, recentOrg, { ...cur, channel: 'google' })
+    expect(rows.map((r) => r.contact)).toEqual(['rcg@x.com'])
+  })
+
+  it('respeita o limit', async () => {
+    const rows = await getRecentLeads(db, recentOrg, { ...cur, channel: 'all' }, 2)
+    expect(rows.length).toBe(2)
+    expect(rows.map((r) => r.contact)).toEqual(['rc3@x.com', 'rcg@x.com'])
+  })
+
+  it('não vaza dados de outra org', async () => {
+    const rows = await getRecentLeads(db, recentOrg, { ...cur, channel: 'all' })
+    expect(rows.some((r) => r.contact === 'other@x.com')).toBe(false)
+  })
+})
+
 describe('getDashboardData', () => {
   it('retorna o objeto com as chaves esperadas e 18 funnelPaths', async () => {
     const data = await getDashboardData(
@@ -627,6 +715,8 @@ describe('getDashboardData', () => {
     expect(data).toHaveProperty('loss')
     expect(data).toHaveProperty('funnelPaths')
     expect(data).toHaveProperty('donutArcs')
+    expect(data).toHaveProperty('recentLeads')
+    expect(Array.isArray(data.recentLeads)).toBe(true)
 
     expect(data.funnel.counts).toEqual([5, 4, 3, 2, 2, 2])
     expect(data.funnel.convGeral).toBe(2 / 5)
